@@ -92,7 +92,7 @@ export class YSockets {
     const broadcast = (message) => Promise.all(
       otherConnectionIds.map(async (id) => {
         try {
-          send(id, toBase64(message));
+          await send(id, toBase64(message));
         } catch (e) {
           // remove connections that no longer exist
           if (e instanceof GoneException) {

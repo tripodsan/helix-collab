@@ -21,6 +21,7 @@ const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
  * @typedef ConnectionItem
  * @property {string} id
  * @property {string} docName
+ * @property {string} created
 */
 
 /**
@@ -74,8 +75,9 @@ export class Connections {
       Item: {
         id,
         docName,
-        // ttl: Date.now() / 1000 + 3600,
+        created: new Date().toISOString(),
       },
+      ConditionExpression: 'attribute_not_exists(id)',
     });
     console.log('addConnection(%s, %s) -> %j', id, docName, ret);
     return ret.$metadata.httpStatusCode === 200;
