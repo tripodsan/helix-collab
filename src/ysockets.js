@@ -17,16 +17,26 @@ import { toBase64, fromBase64 } from 'lib0/buffer';
 
 import * as Y from 'yjs';
 import { GoneException } from '@aws-sdk/client-apigatewaymanagementapi';
-import { Connections } from './connections.js';
 
 const messageSync = 0;
 const messageAwareness = 1;
 
 export class YSockets {
-  con = new Connections();
+  /**
+   * @type Storage
+   */
+  #storage;
+
+  /**
+   * @param {Storage} storage
+   * @returns {YSockets}
+   */
+  constructor(storage) {
+    this.#storage = storage;
+  }
 
   destroy() {
-    this.con.destroy();
+    this.#storage.destroy();
   }
 
   /**
@@ -36,9 +46,8 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onConnection(connectionId, docName, send) {
-    const { con } = this;
-    await con.addConnection(connectionId, docName);
-    const doc = await con.getOrCreateYDoc(docName);
+    await this.#storage.addConnection(connectionId, docName);
+    const doc = await this.#storage.getOrCreateYDoc(docName);
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
     syncProtocol.writeSyncStep1(encoder, doc);
@@ -58,8 +67,7 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onDisconnect(connectionId) {
-    const { con } = this;
-    await con.removeConnection(connectionId);
+    await this.#storage.removeConnection(connectionId);
 
     console.log(`${connectionId} disconnected`);
   }
@@ -72,14 +80,13 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onMessage(connectionId, b64Message, send) {
-    const { con } = this;
     const messageArray = fromBase64(b64Message);
 
-    const docName = (await con.getConnection(connectionId))?.docName;
+    const docName = (await this.#storage.getConnection(connectionId))?.docName;
     if (!docName) {
       throw Error(`no connection for ${connectionId}`);
     }
-    const connectionIds = await con.getConnectionIds(docName);
+    const connectionIds = await this.#storage.getConnectionIds(docName);
     const otherConnectionIds = connectionIds.filter(
       (id) => id !== connectionId,
     );
@@ -96,13 +103,13 @@ export class YSockets {
         } catch (e) {
           // remove connections that no longer exist
           if (e instanceof GoneException) {
-            await con.removeConnection(id);
+            await this.#storage.removeConnection(id);
           }
         }
       }),
     );
 
-    const doc = await con.getOrCreateYDoc(docName);
+    const doc = await this.#storage.getOrCreateYDoc(docName);
 
     const encoder = encoding.createEncoder();
     const decoder = decoding.createDecoder(messageArray);
@@ -128,7 +135,7 @@ export class YSockets {
           case syncProtocol.messageYjsUpdate: {
             const update = decoding.readVarUint8Array(decoder);
             Y.applyUpdate(doc, update);
-            await con.updateDoc(docName, toBase64(update));
+            await this.#storage.updateDoc(docName, toBase64(update));
             await broadcast(messageArray);
             break;
           }

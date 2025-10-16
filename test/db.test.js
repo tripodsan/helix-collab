@@ -12,16 +12,17 @@
 
 /* eslint-env mocha */
 import assert from 'node:assert';
-import { Connections } from '../src/connections.js';
+import { Storage } from '../src/storage.js';
+import { DDBPersistence } from '../src/ddb-persistence.js';
 
 describe('db test', () => {
   /**
-   * @type Connections
+   * @type Storage
    */
   let con;
 
   beforeEach(() => {
-    con = new Connections();
+    con = new Storage(new DDBPersistence());
   });
 
   afterEach((() => {
@@ -29,20 +30,29 @@ describe('db test', () => {
   }));
 
   it('can add, get and remove a connection', async () => {
-    const ret1 = await con.addConnection('test-id', 'test-doc');
-    assert.strictEqual(ret1, true);
+    await con.removeConnection('test-id');
+    let ret = await con.addConnection('test-id', 'test-doc');
+    assert.strictEqual(ret, true);
+    // adding a second time should return false
+    ret = await con.addConnection('test-id', 'test-doc');
+    assert.strictEqual(ret, false);
 
-    const ret2 = await con.getConnection('test-id');
-    assert.deepStrictEqual(ret2, {
+    ret = await con.getConnection('test-id');
+    assert.ok(ret.created);
+    assert.deepStrictEqual(ret, {
       id: 'test-id',
       docName: 'test-doc',
+      created: ret.created,
     });
 
-    const ret3 = await con.removeConnection('test-id');
-    assert.strictEqual(ret3, true);
+    ret = await con.removeConnection('test-id');
+    assert.strictEqual(ret, true);
+    // removing a second time does nothing
+    ret = await con.removeConnection('test-id');
+    assert.strictEqual(ret, true);
 
-    const ret4 = await con.getConnection('test-id');
-    assert.strictEqual(ret4, null);
+    ret = await con.getConnection('test-id');
+    assert.strictEqual(ret, null);
   });
 
   it('can find the existing connections', async () => {
@@ -81,7 +91,7 @@ describe('db test', () => {
     let ret = await con.updateDoc('test-doc', 'update-1');
     assert.strictEqual(ret, true);
 
-    ret = await con.getDoc('test-doc');
+    ret = await con.getOrCreateDoc('test-doc');
     assert.deepStrictEqual(ret, {
       docName: 'test-doc',
       updates: ['update-1'],

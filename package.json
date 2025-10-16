@@ -29,7 +29,8 @@
     "__awsAttachAuthorizer": "helix-token-authorizer_v2",
     "adapterFile": "./src/adapter.js",
     "handler": "index.handler",
-    "timeout": 900000
+    "timeout": 900000,
+    "params-file": "secrets.json"
   },
   "mocha": {
     "spec": "test/**/*.test.js",

@@ -15,6 +15,8 @@ import {
 } from '@aws-sdk/client-apigatewaymanagementapi';
 import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lambda';
 import { YSockets } from './ysockets.js';
+import { Storage } from './storage.js';
+import { DDBPersistence } from './ddb-persistence.js';
 
 function getDocName(event) {
   const doc = event.queryStringParameters?.doc;
@@ -72,6 +74,15 @@ async function sendMessageAsync(ctx, id, message) {
   }
 }
 
+async function authorize(event) {
+  // extract token from header
+  const protocols = (event.headers?.['Sec-WebSocket-Protocol'] || '').split(',');
+  console.log('protocols', protocols);
+  const token = protocols.find((hdr) => hdr !== 'yjs').trim();
+  console.log('token', token);
+  return token === process.env.WS_TOKEN;
+}
+
 /**
  * The raw universal adapter for lambda functions
  * @param {object} event AWS Lambda event
@@ -83,7 +94,9 @@ export async function run(event, context) {
 
   const { body, requestContext: { connectionId, routeKey } = {} } = event;
 
-  const ysockets = new YSockets();
+  const storage = new Storage(new DDBPersistence());
+  const ysockets = new YSockets(storage);
+
   const callbackAPI = new ApiGatewayManagementApiClient({
     apiVersion: '2018-11-29',
     endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,
@@ -92,6 +105,13 @@ export async function run(event, context) {
   try {
     switch (routeKey) {
       case '$connect': {
+        if (!await authorize(event)) {
+          console.log('unauthorized');
+          return {
+            statusCode: 401,
+            body: 'Unauthorized',
+          };
+        }
         const docName = getDocName(event);
         const ctx = {
           arn: context.invokedFunctionArn,
@@ -101,7 +121,13 @@ export async function run(event, context) {
         };
         // eslint-disable-next-line max-len
         await ysockets.onConnection(connectionId, docName, sendMessageAsync.bind(null, ctx));
-        return { statusCode: 200, body: 'Connected.' };
+        return {
+          statusCode: 200,
+          body: 'Connected.',
+          headers: {
+            'Sec-WebSocket-Protocol': 'yjs',
+          },
+        };
       }
       case '$disconnect': {
         await ysockets.onDisconnect(connectionId);
@@ -123,6 +149,7 @@ export async function run(event, context) {
         };
     }
   } catch (e) {
+    console.error('Internal Error:', e);
     return {
       status: 500,
       body: `Internal Error: ${e}`,
