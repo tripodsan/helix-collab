@@ -95,46 +95,49 @@ export async function run(event, context) {
   const { body, requestContext: { connectionId, routeKey } = {} } = event;
 
   const storage = new Storage(new DDBPersistence());
-  const ysockets = new YSockets(storage);
-
   const callbackAPI = new ApiGatewayManagementApiClient({
     apiVersion: '2018-11-29',
     endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,
   });
 
+  let ysockets;
   try {
-    switch (routeKey) {
-      case '$connect': {
-        if (!await authorize(event)) {
-          console.log('unauthorized');
-          return {
-            statusCode: 401,
-            body: 'Unauthorized',
-          };
-        }
-        const docName = getDocName(event);
-        const ctx = {
-          arn: context.invokedFunctionArn,
-          domainName: event.requestContext.domainName,
-          stage: event.requestContext.stage,
-          apiId: event.requestContext.apiId,
-        };
-        // eslint-disable-next-line max-len
-        await ysockets.onConnection(connectionId, docName, sendMessageAsync.bind(null, ctx));
+    if (routeKey === '$connect') {
+      // this uses a different send, so we keep it outside the switch block
+      if (!await authorize(event)) {
+        console.log('unauthorized');
         return {
-          statusCode: 200,
-          body: 'Connected.',
-          headers: {
-            'Sec-WebSocket-Protocol': 'yjs',
-          },
+          statusCode: 401,
+          body: 'Unauthorized',
         };
       }
+      const docName = getDocName(event);
+      const ctx = {
+        arn: context.invokedFunctionArn,
+        domainName: event.requestContext.domainName,
+        stage: event.requestContext.stage,
+        apiId: event.requestContext.apiId,
+      };
+      ysockets = new YSockets(storage, sendMessageAsync.bind(null, ctx));
+      // eslint-disable-next-line max-len
+      await ysockets.onConnection(connectionId, docName);
+      return {
+        statusCode: 200,
+        body: 'Connected.',
+        headers: {
+          'Sec-WebSocket-Protocol': 'yjs',
+        },
+      };
+    }
+
+    ysockets = new YSockets(storage, send.bind(null, callbackAPI));
+    switch (routeKey) {
       case '$disconnect': {
         await ysockets.onDisconnect(connectionId);
         return { statusCode: 200, body: 'Disconnected.' };
       }
       case '$default':
-        await ysockets.onMessage(connectionId, body, send.bind(null, callbackAPI));
+        await ysockets.onMessage(connectionId, body);
         return { statusCode: 200, body: 'Data Sent' };
       // special route to handle message during connect
       case '$sendmessage':
@@ -155,6 +158,6 @@ export async function run(event, context) {
       body: `Internal Error: ${e}`,
     };
   } finally {
-    ysockets.destroy();
+    ysockets?.destroy();
   }
 }

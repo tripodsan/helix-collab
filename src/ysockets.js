@@ -17,6 +17,7 @@ import { toBase64, fromBase64 } from 'lib0/buffer';
 
 import * as Y from 'yjs';
 import { GoneException } from '@aws-sdk/client-apigatewaymanagementapi';
+import { SharedDocument } from './shared-document.js';
 
 const messageSync = 0;
 const messageAwareness = 1;
@@ -28,15 +29,113 @@ export class YSockets {
   #storage;
 
   /**
+   * @type function
+   */
+  #sendCB;
+
+  /**
    * @param {Storage} storage
    * @returns {YSockets}
    */
-  constructor(storage) {
+  constructor(storage, sendCB) {
     this.#storage = storage;
+    this.#sendCB = sendCB;
   }
 
   destroy() {
     this.#storage.destroy();
+  }
+
+  /**
+   *
+   * @oaram {String} connectionId
+   * @param {String} docName
+   * @returns {Promise<SharedDocument>}
+   */
+  async getOrCreateDoc(connectionId, docName) {
+    const doc = await this.#storage.getOrCreateDoc(docName);
+
+    // convert updates to an encoded array
+    const updates = doc.updates.map(
+      (update) => new Uint8Array(Buffer.from(update, 'base64')),
+    );
+
+    const sdoc = new SharedDocument()
+      .withName(docName)
+      .withStorage(this.#storage)
+      .withConnectionId(connectionId);
+
+    // apply updates before init listeners
+    for (const update of updates) {
+      try {
+        Y.applyUpdate(sdoc, update);
+      } catch (ex) {
+        console.log('Something went wrong with applying the update');
+      }
+    }
+
+    sdoc.on('update', async (update, origin, doc) => {
+      console.log('update', update, origin, doc.name);
+    });
+    sdoc.on('destroy', (doc) => {
+      console.log('YDoc destroyed', doc.name);
+    });
+
+    return sdoc;
+  }
+
+  /**
+   * Broadcast message
+   * @param message
+   * @returns {Promise<Awaited<unknown>[]>}
+   */
+  async broadcast(docName, myId, message) {
+    const msg = toBase64(message);
+    const ids = await this.#storage.getConnectionIds(docName);
+    const tasks = ids
+      .filter((id) => id !== myId)
+      .map(async (id) => {
+        try {
+          await this.#sendCB(id, msg);
+        } catch (e) {
+          // remove connections that no longer exist
+          if (e instanceof GoneException) {
+            await this.#storage.removeConnection(id);
+          }
+        }
+      });
+    return Promise.all(tasks);
+  }
+
+  /**
+   * Handls the sync message received from client
+   * @param decoder
+   * @param encoder
+   * @param doc
+   * @returns {Promise<void>}
+   */
+  async onSyncMessage(decoder, encoder, doc) {
+    const messageType = decoding.readVarUint(decoder);
+    switch (messageType) {
+      case syncProtocol.messageYjsSyncStep1:
+        syncProtocol.writeSyncStep2(
+          encoder,
+          doc,
+          decoding.readVarUint8Array(decoder),
+        );
+        break;
+      case syncProtocol.messageYjsSyncStep2:
+      case syncProtocol.messageYjsUpdate: {
+        console.log(`applying update to doc ${doc.name}`);
+        const update = decoding.readVarUint8Array(decoder);
+        Y.applyUpdate(doc, update);
+        await this.#storage.updateDoc(doc.name, toBase64(update));
+        // await this.broadcast(docName, connectionId, messageArray);
+        break;
+      }
+      default:
+        throw new Error('Unknown message type');
+    }
   }
 
   /**
@@ -45,16 +144,15 @@ export class YSockets {
    * @param {string} docName
    * @returns {Promise<void>}
    */
-  async onConnection(connectionId, docName, send) {
+  async onConnection(connectionId, docName) {
     await this.#storage.addConnection(connectionId, docName);
-    const doc = await this.#storage.getOrCreateYDoc(docName);
+    const doc = await this.getOrCreateDoc(connectionId, docName);
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
     syncProtocol.writeSyncStep1(encoder, doc);
 
-    // TODO: cannot send message during connection...invoke async to trigger send
     try {
-      await send(connectionId, toBase64(encoding.toUint8Array(encoder)));
+      await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
     } catch (e) {
       console.error('error during send', e);
     }
@@ -68,7 +166,6 @@ export class YSockets {
    */
   async onDisconnect(connectionId) {
     await this.#storage.removeConnection(connectionId);
-
     console.log(`${connectionId} disconnected`);
   }
 
@@ -79,37 +176,14 @@ export class YSockets {
    * @param {function} send Send callback
    * @returns {Promise<void>}
    */
-  async onMessage(connectionId, b64Message, send) {
+  async onMessage(connectionId, b64Message) {
     const messageArray = fromBase64(b64Message);
 
     const docName = (await this.#storage.getConnection(connectionId))?.docName;
     if (!docName) {
       throw Error(`no connection for ${connectionId}`);
     }
-    const connectionIds = await this.#storage.getConnectionIds(docName);
-    const otherConnectionIds = connectionIds.filter(
-      (id) => id !== connectionId,
-    );
-
-    /**
-     * Broadcast message
-     * @param message
-     * @returns {Promise<Awaited<unknown>[]>}
-     */
-    const broadcast = (message) => Promise.all(
-      otherConnectionIds.map(async (id) => {
-        try {
-          await send(id, toBase64(message));
-        } catch (e) {
-          // remove connections that no longer exist
-          if (e instanceof GoneException) {
-            await this.#storage.removeConnection(id);
-          }
-        }
-      }),
-    );
-
-    const doc = await this.#storage.getOrCreateYDoc(docName);
+    const doc = await this.getOrCreateDoc(connectionId, docName);
 
     const encoder = encoding.createEncoder();
     const decoder = decoding.createDecoder(messageArray);
@@ -122,34 +196,14 @@ export class YSockets {
       //             (append to db, send to all clients)
       case messageSync: {
         encoding.writeVarUint(encoder, messageSync);
-        const messageType = decoding.readVarUint(decoder);
-        switch (messageType) {
-          case syncProtocol.messageYjsSyncStep1:
-            syncProtocol.writeSyncStep2(
-              encoder,
-              doc,
-              decoding.readVarUint8Array(decoder),
-            );
-            break;
-          case syncProtocol.messageYjsSyncStep2:
-          case syncProtocol.messageYjsUpdate: {
-            const update = decoding.readVarUint8Array(decoder);
-            Y.applyUpdate(doc, update);
-            await this.#storage.updateDoc(docName, toBase64(update));
-            await broadcast(messageArray);
-            break;
-          }
-          default:
-            throw new Error('Unknown message type');
-        }
-
+        await this.onSyncMessage(decoder, encoder, doc);
         if (encoding.length(encoder) > 1) {
-          await send(connectionId, toBase64(encoding.toUint8Array(encoder)));
+          await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
         }
         break;
       }
       case messageAwareness: {
-        await broadcast(messageArray);
+        await this.broadcast(docName, connectionId, messageArray);
         break;
       }
       default:

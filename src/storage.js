@@ -9,8 +9,6 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-import * as Y from 'yjs';
-
 const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
 const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
 
@@ -126,86 +124,11 @@ export class Storage {
 
   /**
    *
-   * @param {String} docName
-   * @returns {Promise<Y.Doc>}
-   */
-  async getOrCreateYDoc(docName) {
-    const doc = await this.getOrCreateDoc(docName);
-
-    // convert updates to an encoded array
-    const updates = doc.updates.map(
-      (update) => new Uint8Array(Buffer.from(update, 'base64')),
-    );
-
-    const ydoc = new Y.Doc();
-    for (const update of updates) {
-      try {
-        Y.applyUpdate(ydoc, update);
-      } catch (ex) {
-        console.log('Something went wrong with applying the update');
-      }
-    }
-
-    return ydoc;
-  }
-
-  /**
-   *
    * @param {string} docName
    * @param {string} update
    * @returns {Promise<boolean>}
    */
   async updateDoc(docName, update) {
     return this.#ps.appendItemValue(this.#docTableName, 'docName', docName, 'updates', update);
-    // let doc = await this.#docClient.get({
-    //   TableName: this.#docTableName,
-    //   Key: {
-    //     docName,
-    //   },
-    // });
-    // if (!doc.item) {
-    //   doc = {
-    //     docName,
-    //     updates: [update],
-    //   };
-    // } else {
-    //   const oldUpdates = doc.Item.updates.map(
-    //     (upd) => new Uint8Array(Buffer.from(upd, 'base64')),
-    //   );
-    //   const mergedUpdate = Y.mergeUpdates(oldUpdates.concat([update]));
-    //   doc = {
-    //     docName,
-    //     updates: [toBase64(mergedUpdate)],
-    //   };
-    // }
-    // const ret = await this.#docClient.put({
-    //   TableName: this.#docTableName,
-    //   Item: doc,
-    // });
-    // console.log('updateDoc(%s, %s) -> %j', docName, update, ret);
-    // return ret.$metadata.httpStatusCode === 200;
-
-    /*
-    Future: Try to compute diffs as one large update
-
-    const existingDoc = await this.DatabaseHelper.getItem<DocumentItem>(docName);
-
-        let dbDoc = {
-            Updates: []
-        }
-        if(existingDoc) {
-            dbDoc = existingDoc
-        }else{
-            await this.DatabaseHelper.createItem(docName, dbDoc, undefined, true)
-        }
-
-        const oldUpdates = dbDoc.Updates.map(update =>
-        new Uint8Array(Buffer.from(update, 'base64')))
-
-        // merge updates into one large update
-        const mergedUpdate = Y.mergeUpdates(oldUpdates.concat([update]));
-
-        return await this.DatabaseHelper.updateItemAttribute(docName,'Updates',
-         [toBase64(mergedUpdate)], undefined) */
   }
 }
