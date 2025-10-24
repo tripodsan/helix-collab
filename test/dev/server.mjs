@@ -15,13 +15,12 @@ import { YSockets } from '../../src/ysockets.js';
 import { LocalPersistence } from './local-db.js';
 
 const wss = new WebSocketServer({ port: 8080 });
-const connectedClients = [];
-
+let nextId = 0;
+const connectedClients = { };
 const storage = new Storage(new LocalPersistence('./tmp'));
-
 const send = async (id, b64Message) => {
   if (connectedClients[id]) {
-    console.log('[%d] send %s', id, b64Message);
+    console.log('[%d]< %s', id, b64Message);
     connectedClients[id].send(b64Message);
   }
 };
@@ -39,28 +38,31 @@ function getDocName(params) {
 wss.on('connection', async (ws, req) => {
   const url = new URL(`wss://localhost:8080${req.url}`);
   const docName = getDocName(url.searchParams);
-  const id = connectedClients.length;
-  connectedClients.push(ws);
-  console.log('[%d] New connection to document "%s"', id, docName);
-  await ysockets.onConnection(id, docName);
+  const id = nextId;
+  nextId += 1;
+  connectedClients[id] = ws;
 
   ws.on('error', console.error);
 
   ws.on('message', async (message) => {
-    console.log('[%d] recv %s', id, message);
-    await ysockets.onMessage(id, message.toString());
+    console.log('[%d]> %s', id, message);
+    try {
+      await ysockets.onMessage(id, message.toString());
+    } catch (e) {
+      console.error('error: ', id, e);
+    }
   });
 
   ws.on('close', async () => {
     await ysockets.onDisconnect(id);
-    connectedClients.splice(id, 1);
+    delete connectedClients[id];
     console.log('[%d] Disconnected', id);
   });
-});
 
-wss.on('close', async (...args) => {
-  console.log('Disconnected', args);
-});
+  console.log('[%d] New connection to document "%s"', id, docName);
+  await ysockets.onConnection(id, docName);
+  console.log('[%d] New connection to document "%s" complete', id, docName);
 
+});
 
 console.log('Listening on ws://localhost:5000');

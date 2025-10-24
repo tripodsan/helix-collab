@@ -33,4 +33,17 @@ export class SharedDocument extends Y.Doc {
     this.#storage = storage;
     return this;
   }
+
+  onUpdate(update, origin, doc) {
+    if (origin === this) {
+      console.log('update self');
+    }
+  }
+
+  /**
+   * initializes the listeners
+   */
+  init() {
+    this.on('update', this.onUpdate.bind(this));
+  }
 }

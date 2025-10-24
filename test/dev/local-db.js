@@ -30,11 +30,13 @@ class AsyncMutex {
   }
 
   unlock() {
+    if (!this.locked) {
+      throw Error('unlock must not be used outside lock.');
+    }
+    this.locked = false;
     if (this.resolvers.length > 0) {
       const res = this.resolvers.shift();
       res();
-    } else {
-      this.locked = false;
     }
   }
 }

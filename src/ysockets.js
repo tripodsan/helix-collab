@@ -46,6 +46,19 @@ export class YSockets {
     this.#storage.destroy();
   }
 
+  async onUpdate(update, origin, doc) {
+    if (origin === this) {
+      console.log('update self');
+    }
+    await this.#storage.updateDoc(doc.name, toBase64(update));
+    console.log('send update');
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, messageSync);
+    syncProtocol.writeUpdate(encoder, update);
+    const message = encoding.toUint8Array(encoder);
+    await this.broadcast(doc.name, doc.connectionId, message);
+  }
+
   /**
    *
    * @oaram {String} connectionId
@@ -69,10 +82,11 @@ export class YSockets {
     for (const update of updates) {
       try {
         Y.applyUpdate(sdoc, update);
-      } catch (ex) {
-        console.log('Something went wrong with applying the update');
+      } catch (e) {
+        console.log('Something went wrong with applying the update', e);
       }
     }
+    console.log('created ydoc for', docName);
 
     sdoc.on('update', async (update, origin, doc) => {
       console.log('update', update, origin, doc.name);
@@ -80,6 +94,10 @@ export class YSockets {
     sdoc.on('destroy', (doc) => {
       console.log('YDoc destroyed', doc.name);
     });
+
+    sdoc.on('update', this.onUpdate.bind(this));
+
+    sdoc.init();
 
     return sdoc;
   }
@@ -112,25 +130,24 @@ export class YSockets {
    * @param decoder
    * @param encoder
    * @param doc
+   * @param transactionOrigin
    * @returns {Promise<void>}
    */
-  async onSyncMessage(decoder, encoder, doc) {
+  // eslint-disable-next-line class-methods-use-this
+  async onSyncMessage(decoder, encoder, doc, transactionOrigin) {
     const messageType = decoding.readVarUint(decoder);
+    console.log('onSyncMessage ', messageType);
     switch (messageType) {
       case syncProtocol.messageYjsSyncStep1:
-        syncProtocol.writeSyncStep2(
-          encoder,
-          doc,
-          decoding.readVarUint8Array(decoder),
-        );
+        syncProtocol.readSyncStep1(decoder, encoder, doc);
         break;
       case syncProtocol.messageYjsSyncStep2:
+        console.log(`applying sync step2 to doc ${doc.name}`);
+        syncProtocol.readSyncStep2(decoder, doc, transactionOrigin);
+        break;
       case syncProtocol.messageYjsUpdate: {
         console.log(`applying update to doc ${doc.name}`);
-        const update = decoding.readVarUint8Array(decoder);
-        Y.applyUpdate(doc, update);
-        await this.#storage.updateDoc(doc.name, toBase64(update));
-        // await this.broadcast(docName, connectionId, messageArray);
+        syncProtocol.readUpdate(decoder, doc, transactionOrigin);
         break;
       }
       default:
@@ -146,17 +163,17 @@ export class YSockets {
    */
   async onConnection(connectionId, docName) {
     await this.#storage.addConnection(connectionId, docName);
-    const doc = await this.getOrCreateDoc(connectionId, docName);
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, messageSync);
-    syncProtocol.writeSyncStep1(encoder, doc);
-
-    try {
-      await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
-    } catch (e) {
-      console.error('error during send', e);
-    }
-    console.log(`${connectionId} connected`);
+    // const doc = await this.getOrCreateDoc(connectionId, docName);
+    // const encoder = encoding.createEncoder();
+    // encoding.writeVarUint(encoder, messageSync);
+    // syncProtocol.writeSyncStep1(encoder, doc);
+    //
+    // try {
+    //   await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
+    // } catch (e) {
+    //   console.error('error during send', e);
+    // }
+    console.log(`[${connectionId}] connected`);
   }
 
   /**
@@ -166,7 +183,7 @@ export class YSockets {
    */
   async onDisconnect(connectionId) {
     await this.#storage.removeConnection(connectionId);
-    console.log(`${connectionId} disconnected`);
+    console.log(`[${connectionId}] disconnected`);
   }
 
   /**
@@ -177,24 +194,19 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onMessage(connectionId, b64Message) {
-    const messageArray = fromBase64(b64Message);
+    const message = fromBase64(b64Message);
+    const encoder = encoding.createEncoder();
+    const decoder = decoding.createDecoder(message);
+    const messageCat = decoding.readVarUint(decoder);
+    console.log('[%d] message cat %d', connectionId, messageCat);
 
     const docName = (await this.#storage.getConnection(connectionId))?.docName;
     if (!docName) {
       throw Error(`no connection for ${connectionId}`);
     }
-    const doc = await this.getOrCreateDoc(connectionId, docName);
-
-    const encoder = encoding.createEncoder();
-    const decoder = decoding.createDecoder(messageArray);
-    const messageCat = decoding.readVarUint(decoder);
-
     switch (messageCat) {
-      // Case sync1: Read SyncStep1 message and reply with SyncStep2
-      //             (send doc to client wrt state vector input)
-      // Case sync2 or yjsUpdate: Read and apply Structs and then DeleteStore to a y instance
-      //             (append to db, send to all clients)
       case messageSync: {
+        const doc = await this.getOrCreateDoc(connectionId, docName);
         encoding.writeVarUint(encoder, messageSync);
         await this.onSyncMessage(decoder, encoder, doc);
         if (encoding.length(encoder) > 1) {
@@ -203,7 +215,7 @@ export class YSockets {
         break;
       }
       case messageAwareness: {
-        await this.broadcast(docName, connectionId, messageArray);
+        await this.broadcast(docName, connectionId, message);
         break;
       }
       default:
