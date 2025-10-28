@@ -43,6 +43,37 @@ class AsyncMutex {
 
 const mutex = new AsyncMutex();
 
+/**
+ * Converts the document item from base64 encoding to Buffer
+ * @param {DocumentItem} item
+ */
+function fromBase64(item) {
+  for (const [k, v] of Object.entries(item)) {
+    if (k === 'state') {
+      // eslint-disable-next-line no-param-reassign
+      item[k] = Buffer.from(v, 'base64');
+    } else if (k === 'updates' && Array.isArray(v)) {
+      v.forEach((e, i) => {
+        v[i] = Buffer.from(e, 'base64');
+      });
+    }
+  }
+}
+
+/**
+ * Converts attribute to base64 encoding
+ * @param attr
+ * @returns {*|string}
+ */
+function toBase64(attr) {
+  if (attr instanceof Buffer) {
+    return attr.toString('base64');
+  } else if (Array.isArray(attr)) {
+    return attr.map((e) => toBase64(e));
+  }
+  return attr;
+}
+
 export class LocalPersistence {
   #dir;
 
@@ -102,10 +133,8 @@ export class LocalPersistence {
 
   async getOrCreateItem(tableName, keyName, key, attrName, attr) {
     try {
-      if (attr instanceof Buffer) {
-        // eslint-disable-next-line no-param-reassign
-        attr = attr.toString('base64');
-      }
+      // eslint-disable-next-line no-param-reassign
+      attr = toBase64(attr);
       await mutex.lock();
       const table = await this.#openTable(tableName);
       let item = table.find((i) => i[keyName] === key);
@@ -120,10 +149,7 @@ export class LocalPersistence {
       if (this.#debug) {
         console.log('getOrCreateItem(%s, %s:%s %s:%s) -> %j', tableName, keyName, key, attrName, attr, item);
       }
-      if ('state' in item) {
-        // TODO: don't assume binary
-        item.state = Buffer.from(item.state, 'base64');
-      }
+      fromBase64(item);
       return item;
     } finally {
       await mutex.unlock();
@@ -132,10 +158,8 @@ export class LocalPersistence {
 
   async updateItem(tableName, keyName, key, attrName, attr) {
     try {
-      if (attr instanceof Buffer) {
-        // eslint-disable-next-line no-param-reassign
-        attr = attr.toString('base64');
-      }
+      // eslint-disable-next-line no-param-reassign
+      attr = toBase64(attr);
       await mutex.lock();
       const table = await this.#openTable(tableName);
       let item = table.find((i) => i[keyName] === key);
@@ -152,10 +176,7 @@ export class LocalPersistence {
       if (this.#debug) {
         console.log('updateItem(%s, %s:%s %s:%s) -> %j', tableName, keyName, key, attrName, attr, item);
       }
-      if ('state' in item) {
-        // TODO: don't assume binary
-        item.state = Buffer.from(item.state, 'base64');
-      }
+      fromBase64(item);
       return item;
     } finally {
       await mutex.unlock();
@@ -176,10 +197,7 @@ export class LocalPersistence {
       if (this.#debug) {
         console.log('getItem(%s, %s:%s) -> %j', tableName, keyName, key, item);
       }
-      if ('state' in item) {
-        // TODO: don't assume binary
-        item.state = Buffer.from(item.state, 'base64');
-      }
+      fromBase64(item);
       return item || null;
     } finally {
       await mutex.unlock();
@@ -243,6 +261,8 @@ export class LocalPersistence {
    */
   async appendItemValue(tableName, keyName, key, attrName, attr) {
     try {
+      // eslint-disable-next-line no-param-reassign
+      attr = toBase64(attr);
       await mutex.lock();
       const table = await this.#openTable(tableName);
       const item = table.find((i) => i[keyName] === key);

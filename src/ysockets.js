@@ -34,6 +34,12 @@ export class YSockets {
   #sendCB;
 
   /**
+   * Store incremental updates
+   * @type {boolean}
+   */
+  #incremental = true;
+
+  /**
    * @param {Storage} storage
    * @returns {YSockets}
    */
@@ -57,9 +63,12 @@ export class YSockets {
     if (origin === this) {
       console.log('update self');
     }
-    const state = Y.encodeStateAsUpdate(doc);
-    // await this.#storage.updateDoc(doc.name, toBase64(update));
-    await this.#storage.storeDoc(doc.name, Buffer.from(state));
+    if (this.#incremental) {
+      await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
+    } else {
+      const state = Y.encodeStateAsUpdate(doc);
+      await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
+    }
     console.log('send update');
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
@@ -75,7 +84,9 @@ export class YSockets {
    * @returns {Promise<SharedDocument>}
    */
   async getOrCreateDoc(connectionId, docName) {
-    const doc = await this.#storage.getOrCreateDoc(docName);
+    const doc = this.#incremental
+      ? await this.#storage.getOrCreateDoc(docName, 'updates', [])
+      : await this.#storage.getOrCreateDoc(docName, 'state', Buffer.alloc(0));
 
     const sdoc = new SharedDocument()
       .withName(docName)
@@ -84,7 +95,11 @@ export class YSockets {
 
     // apply update before init listeners
     try {
-      if (doc.state.length > 0) {
+      if (this.#incremental) {
+        for (const update of doc.updates) {
+          Y.applyUpdate(sdoc, update);
+        }
+      } else if (doc.state.length > 0) {
         Y.applyUpdate(sdoc, doc.state);
       }
     } catch (e) {
@@ -92,13 +107,13 @@ export class YSockets {
     }
     console.log('created ydoc for', docName);
 
-    sdoc.on('update', async (update, origin, doc) => {
-      console.log('update', update, origin, doc.name);
-    });
-    sdoc.on('destroy', (doc) => {
-      console.log('YDoc destroyed', doc.name);
-    });
-
+    // sdoc.on('update', async (update, origin, doc) => {
+    //   console.log('update', update, origin, doc.name);
+    // });
+    // sdoc.on('destroy', (doc) => {
+    //   console.log('YDoc destroyed', doc.name);
+    // });
+    //
     sdoc.on('update', this.onUpdate.bind(this));
 
     sdoc.init();

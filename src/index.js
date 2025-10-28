@@ -139,8 +139,8 @@ export async function run(event, context) {
       case '$default':
         await ysockets.onMessage(connectionId, body);
         return { statusCode: 200, body: 'Data Sent' };
-      // special route to handle message during connect
       case '$sendmessage':
+        // special route to handle message during connect
         console.log('handling async message from self.');
         await send(callbackAPI, connectionId, body);
         return { statusCode: 200, body: 'Data Sent' };
