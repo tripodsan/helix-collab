@@ -119,16 +119,25 @@ export class Storage {
    * @returns {Promise<DocumentItem>}
    */
   async getOrCreateDoc(docName) {
-    return this.#ps.getOrCreateItem(this.#docTableName, 'docName', docName, 'updates', []);
+    return this.#ps.getOrCreateItem(this.#docTableName, 'docName', docName, 'state', Buffer.from([]));
   }
 
   /**
    *
    * @param {string} docName
-   * @param {string} update
+   * @param {Buffer} update
    * @returns {Promise<boolean>}
    */
   async updateDoc(docName, update) {
     return this.#ps.appendItemValue(this.#docTableName, 'docName', docName, 'updates', update);
+  }
+
+  /**
+   * @param {string} docName
+   * @param {Buffer} state
+   * @returns {Promise<boolean>}
+   */
+  async storeDoc(docName, state) {
+    return this.#ps.updateItem(this.#docTableName, 'docName', docName, 'state', state);
   }
 }

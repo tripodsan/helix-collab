@@ -52,6 +52,7 @@ export class LocalPersistence {
     this.#dir = resolve(dir);
   }
 
+  // eslint-disable-next-line class-methods-use-this
   destroy() {
   }
 
@@ -101,9 +102,13 @@ export class LocalPersistence {
 
   async getOrCreateItem(tableName, keyName, key, attrName, attr) {
     try {
+      if (attr instanceof Buffer) {
+        // eslint-disable-next-line no-param-reassign
+        attr = attr.toString('base64');
+      }
       await mutex.lock();
       const table = await this.#openTable(tableName);
-      let item = table.find((item) => item[keyName] === key);
+      let item = table.find((i) => i[keyName] === key);
       if (!item) {
         item = {
           [keyName]: key,
@@ -114,6 +119,42 @@ export class LocalPersistence {
       await this.#saveTable(tableName, table);
       if (this.#debug) {
         console.log('getOrCreateItem(%s, %s:%s %s:%s) -> %j', tableName, keyName, key, attrName, attr, item);
+      }
+      if ('state' in item) {
+        // TODO: don't assume binary
+        item.state = Buffer.from(item.state, 'base64');
+      }
+      return item;
+    } finally {
+      await mutex.unlock();
+    }
+  }
+
+  async updateItem(tableName, keyName, key, attrName, attr) {
+    try {
+      if (attr instanceof Buffer) {
+        // eslint-disable-next-line no-param-reassign
+        attr = attr.toString('base64');
+      }
+      await mutex.lock();
+      const table = await this.#openTable(tableName);
+      let item = table.find((i) => i[keyName] === key);
+      if (!item) {
+        item = {
+          [keyName]: key,
+          [attrName]: attr,
+        };
+        table.push(item);
+      } else {
+        item[attrName] = attr;
+      }
+      await this.#saveTable(tableName, table);
+      if (this.#debug) {
+        console.log('updateItem(%s, %s:%s %s:%s) -> %j', tableName, keyName, key, attrName, attr, item);
+      }
+      if ('state' in item) {
+        // TODO: don't assume binary
+        item.state = Buffer.from(item.state, 'base64');
       }
       return item;
     } finally {
@@ -131,9 +172,13 @@ export class LocalPersistence {
     try {
       await mutex.lock();
       const table = await this.#openTable(tableName);
-      const item = table.find((item) => item[keyName] === key);
+      const item = table.find((i) => i[keyName] === key);
       if (this.#debug) {
         console.log('getItem(%s, %s:%s) -> %j', tableName, keyName, key, item);
+      }
+      if ('state' in item) {
+        // TODO: don't assume binary
+        item.state = Buffer.from(item.state, 'base64');
       }
       return item || null;
     } finally {
@@ -173,6 +218,7 @@ export class LocalPersistence {
    * @param index
    * @returns {Promise<Record<string, NativeAttributeValue>[]|*[]>}
    */
+  // eslint-disable-next-line no-unused-vars
   async listItems(tableName, keyName, key, index) {
     try {
       await mutex.lock();
@@ -199,7 +245,7 @@ export class LocalPersistence {
     try {
       await mutex.lock();
       const table = await this.#openTable(tableName);
-      const item = table.find((item) => item[keyName] === key);
+      const item = table.find((i) => i[keyName] === key);
       if (!item) {
         throw new Error(`Item with key ${key} not found in table ${tableName}`);
       }

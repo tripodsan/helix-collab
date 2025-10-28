@@ -87,6 +87,27 @@ export class DDBPersistence {
     return ret.Attributes;
   }
 
+  async updateItem(tableName, keyName, key, attrName, attr) {
+    const ret = await this.#docClient.update({
+      TableName: tableName,
+      UpdateExpression: 'SET #attrName = :attrValue',
+      Key: {
+        [keyName]: key,
+      },
+      ExpressionAttributeValues: {
+        ':attrValue': attr,
+      },
+      ExpressionAttributeNames: {
+        '#attrName': attrName,
+      },
+      ReturnValues: 'ALL_NEW',
+    });
+    if (this.#debug) {
+      console.log('updateItem(%s, %s:%s %s:%s) -> %j', tableName, keyName, key, attrName, attr, ret);
+    }
+    return ret.Attributes;
+  }
+
   /**
    * @param tableName
    * @param keyName
@@ -166,57 +187,9 @@ export class DDBPersistence {
         ':attrValue': [attr],
       },
     });
-    // let doc = await this.#docClient.get({
-    //   TableName: this.#docTableName,
-    //   Key: {
-    //     docName,
-    //   },
-    // });
-    // if (!doc.item) {
-    //   doc = {
-    //     docName,
-    //     updates: [update],
-    //   };
-    // } else {
-    //   const oldUpdates = doc.Item.updates.map(
-    //     (upd) => new Uint8Array(Buffer.from(upd, 'base64')),
-    //   );
-    //   const mergedUpdate = Y.mergeUpdates(oldUpdates.concat([update]));
-    //   doc = {
-    //     docName,
-    //     updates: [toBase64(mergedUpdate)],
-    //   };
-    // }
-    // const ret = await this.#docClient.put({
-    //   TableName: this.#docTableName,
-    //   Item: doc,
-    // });
     if (this.#debug) {
       console.log('updateItemValue(%s, %s:%s, %s:%s) -> %j', tableName, keyName, key, attrName, attr, ret);
     }
     return ret.$metadata.httpStatusCode === 200;
-
-    /*
-    Future: Try to compute diffs as one large update
-
-    const existingDoc = await this.DatabaseHelper.getItem<DocumentItem>(docName);
-
-        let dbDoc = {
-            Updates: []
-        }
-        if(existingDoc) {
-            dbDoc = existingDoc
-        }else{
-            await this.DatabaseHelper.createItem(docName, dbDoc, undefined, true)
-        }
-
-        const oldUpdates = dbDoc.Updates.map(update =>
-        new Uint8Array(Buffer.from(update, 'base64')))
-
-        // merge updates into one large update
-        const mergedUpdate = Y.mergeUpdates(oldUpdates.concat([update]));
-
-        return await this.DatabaseHelper.updateItemAttribute(docName,'Updates',
-         [toBase64(mergedUpdate)], undefined) */
   }
 }

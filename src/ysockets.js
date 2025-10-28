@@ -46,11 +46,20 @@ export class YSockets {
     this.#storage.destroy();
   }
 
+  /**
+   * stores the updated doc in storage and broadcasts the update/
+   * @param {Uint8Array} update
+   * @param {?} origin
+   * @param {Y.doc} doc
+   * @returns {Promise<void>}
+   */
   async onUpdate(update, origin, doc) {
     if (origin === this) {
       console.log('update self');
     }
-    await this.#storage.updateDoc(doc.name, toBase64(update));
+    const state = Y.encodeStateAsUpdate(doc);
+    // await this.#storage.updateDoc(doc.name, toBase64(update));
+    await this.#storage.storeDoc(doc.name, Buffer.from(state));
     console.log('send update');
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
@@ -68,23 +77,18 @@ export class YSockets {
   async getOrCreateDoc(connectionId, docName) {
     const doc = await this.#storage.getOrCreateDoc(docName);
 
-    // convert updates to an encoded array
-    const updates = doc.updates.map(
-      (update) => new Uint8Array(Buffer.from(update, 'base64')),
-    );
-
     const sdoc = new SharedDocument()
       .withName(docName)
       .withStorage(this.#storage)
       .withConnectionId(connectionId);
 
-    // apply updates before init listeners
-    for (const update of updates) {
-      try {
-        Y.applyUpdate(sdoc, update);
-      } catch (e) {
-        console.log('Something went wrong with applying the update', e);
+    // apply update before init listeners
+    try {
+      if (doc.state.length > 0) {
+        Y.applyUpdate(sdoc, doc.state);
       }
+    } catch (e) {
+      console.log('Something went wrong with applying the update', e);
     }
     console.log('created ydoc for', docName);
 
@@ -163,16 +167,16 @@ export class YSockets {
    */
   async onConnection(connectionId, docName) {
     await this.#storage.addConnection(connectionId, docName);
-    // const doc = await this.getOrCreateDoc(connectionId, docName);
-    // const encoder = encoding.createEncoder();
-    // encoding.writeVarUint(encoder, messageSync);
-    // syncProtocol.writeSyncStep1(encoder, doc);
-    //
-    // try {
-    //   await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
-    // } catch (e) {
-    //   console.error('error during send', e);
-    // }
+    const doc = await this.getOrCreateDoc(connectionId, docName);
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, messageSync);
+    syncProtocol.writeSyncStep1(encoder, doc);
+
+    try {
+      await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
+    } catch (e) {
+      console.error('error during send', e);
+    }
     console.log(`[${connectionId}] connected`);
   }
 
