@@ -74,6 +74,7 @@
     "dotenv": "17.2.2",
     "eslint": "9.4.0",
     "husky": "9.1.7",
+    "jsdom": "^27.0.1",
     "junit-report-builder": "5.1.1",
     "lint-staged": "16.1.6",
     "mocha": "11.7.2",
@@ -90,7 +91,7 @@
     "*.js": "eslint"
   },
   "nodemonConfig": {
-    "exec": "node --inspect ./test/dev/server.mjs",
+    "exec": "node  ./test/dev/server.mjs",
     "watch": [
       ".env",
       "."

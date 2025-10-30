@@ -11,15 +11,14 @@
  */
 import * as Y from 'yjs';
 import { WebsocketProvider } from '@adobe/y-websocket';
-import {
-  ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo, initProseMirrorDoc,
-} from 'y-prosemirror';
-import { EditorState } from 'prosemirror-state';
+import { ySyncPlugin, initProseMirrorDoc } from 'y-prosemirror';
+import { EditorState, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
-
-// import { exampleSetup } from 'prosemirror-example-setup';
-// import { keymap } from 'prosemirror-keymap';
+import jsdom from 'jsdom';
 import { schema } from './schema.js';
+import { yHeadlessCursorPlugin } from './headless-cursor-plugin.js';
+
+const { JSDOM } = jsdom;
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -36,13 +35,19 @@ async function client() {
     },
     protocols: ['yjs', '*'],
     useBase64: true,
-    connect: true,
+    connect: false,
   });
+
+  const userName = `TestUser-${Math.floor(Math.random() * 100)}`;
+
   const type = ydoc.getXmlFragment('prosemirror');
-  // const editor = document.createElement('div')
-  // editor.setAttribute('id', 'editor')
-  // const editorContainer = document.createElement('div')
-  // editorContainer.insertBefore(editor, null)
+  const virtualConsole = new jsdom.VirtualConsole();
+  virtualConsole.forwardTo(console);
+  const dom = new JSDOM('', { virtualConsole });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.ClipboardEvent = Event;
+
   const { doc, mapping } = initProseMirrorDoc(type, schema);
   const view = new EditorView(null, {
     state: EditorState.create({
@@ -50,34 +55,54 @@ async function client() {
       schema,
       plugins: [
         ySyncPlugin(type, { mapping }),
-        // yCursorPlugin(provider.awareness),
-        // yUndoPlugin(),
-        // keymap({
-        //   'Mod-z': undo,
-        //   'Mod-y': redo,
-        //   'Mod-Shift-z': redo,
-        // }),
-      ], // .concat(exampleSetup({ schema, history: false })),
+        yHeadlessCursorPlugin(provider.awareness),
+      ],
     }),
   });
-  provider.on('status', (arg) => {
+
+  async function executeTest() {
+    console.log('set user name to: ', userName);
+    provider.awareness.setLocalStateField('user', {
+      name: userName,
+      color: `#${Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, '0')}`,
+    });
+    console.log('test sleep 500...');
+    await sleep(500);
+    console.log('set selection');
+
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, 2)),
+    );
+
+    console.log('test sleep 500...');
+    await sleep(500);
+    console.log('insert hello');
+    view.pasteText('hello, world (pasted)!');
+    view.dispatch(
+      view.state.tr.insert(
+        0,
+        /** @type {any} */ (schema.node(
+          'paragraph',
+          undefined,
+          schema.text(`hello world from ${userName}`),
+        )),
+      ),
+    );
+    await sleep(500);
+    console.log('disconnet');
+    view.destroy();
+    provider.destroy();
+  }
+
+  provider.on('status', async (arg) => {
     console.log('status', arg);
     console.log('clientID', provider.doc.clientID);
+    if (arg.status === 'connected') {
+      setTimeout(executeTest, 100);
+    }
   });
 
-  console.log('sleep 1...');
-  await sleep(1000);
-  console.log('insert hello');
-  view.dispatch(
-    view.state.tr.insert(
-      0,
-      /** @type {any} */ (schema.node(
-        'paragraph',
-        undefined,
-        schema.text('hello world'),
-      )),
-    ),
-  );
+  provider.connect();
 }
 
 await client();
