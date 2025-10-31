@@ -95,9 +95,14 @@ export class CollabDocument extends EventEmitter {
   }
 
   setCursor(pos) {
-    const sel = pos < 0
-      ? Selection.atEnd(this.view.state.doc)
-      : TextSelection.create(this.view.state.doc, pos);
+    let sel;
+    if (pos === 0) {
+      sel = Selection.atStart(this.view.state.doc);
+    } else if (pos < 0) {
+      sel = Selection.atEnd(this.view.state.doc);
+    } else {
+      sel = TextSelection.create(this.view.state.doc, pos);
+    }
     this.view.dispatch(this.view.state.tr.setSelection(sel));
   }
 

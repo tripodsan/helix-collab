@@ -9,6 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
+import { parseArgs } from 'node:util';
 import { CollabDocument } from './collab-document.js';
 import { schema } from './schema.js';
 
@@ -20,11 +21,12 @@ const sleep = (ms) => new Promise((resolve) => {
 
 const TEXT = 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.';
 
-async function client() {
+async function testClient(docName, userName) {
+  console.log(`--> starting ${docName} / ${userName}`);
   const doc = new CollabDocument(
-    'test-room',
+    docName,
     schema,
-    `TestUser-${Math.floor(Math.random() * 100)}`,
+    userName,
   );
   await doc
     // .withServer(SERVER)
@@ -32,12 +34,10 @@ async function client() {
 
   async function executeTest() {
     doc.setCursor(0);
-
     const words = TEXT.split(' ');
-    let delim = '';
+    words.unshift(`Hello from ${userName}: `);
     for (const word of words) {
-      doc.pasteText(`${delim}${word}`);
-      delim = ' ';
+      doc.pasteText(` ${word}`);
       // eslint-disable-next-line no-await-in-loop
       await sleep(word.length * 5 + Math.random() * 100);
     }
@@ -47,19 +47,63 @@ async function client() {
     doc.destroy();
   }
 
-  doc.on('status', async (arg) => {
-    if (arg.status === 'connected') {
-      setTimeout(executeTest, 100);
-    }
+  const done = new Promise((resolve) => {
+    doc.on('status', async (arg) => {
+      if (arg.status === 'connected') {
+        setTimeout(executeTest, 100);
+      }
+      if (arg.status === 'disconnected') {
+        console.log(`<-- ending ${docName} / ${userName}`);
+        resolve();
+      }
+    });
   });
 
   doc.connect();
+  return done;
 }
 
-client();
-await sleep(500);
-client();
-await sleep(500);
-client();
-await sleep(500);
-client();
+async function documentTest(docName, numUsers) {
+  const clients = [];
+  for (let i = 0; i < numUsers; i += 1) {
+    clients.push(testClient(docName, `test-user-${i}`));
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(500);
+  }
+  await Promise.allSettled(clients);
+}
+
+async function run() {
+  const options = {
+    num: {
+      type: 'string',
+      short: 'n',
+      default: '1',
+    },
+    concurrent: {
+      type: 'string',
+      short: 'c',
+      default: '1',
+    },
+    help: {
+      type: 'boolean',
+      short: 'h',
+      default: false,
+    },
+  };
+  const { values } = parseArgs({ args: process.argv.slice(2), options });
+  if (values.help) {
+    console.log('node collab-loadtest.js -n num -c concurrent');
+    process.exit(0);
+  }
+  const numDocs = Number.parseInt(values.num, 10);
+  const numUsers = Number.parseInt(values.concurrent, 10);
+
+  const tests = [];
+  for (let n = 0; n < numDocs; n += 1) {
+    tests.push(documentTest(`test-doc-${n}`, numUsers));
+  }
+  await Promise.allSettled(tests);
+}
+
+run().catch(console.error);
