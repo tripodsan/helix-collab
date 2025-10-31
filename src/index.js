@@ -76,11 +76,14 @@ async function sendMessageAsync(ctx, id, message) {
 
 async function authorize(event) {
   // extract token from header
-  const protocols = (event.headers?.['Sec-WebSocket-Protocol'] || '').split(',');
-  console.log('protocols', protocols);
+  const headers = new Headers(event.headers || {});
+  const protocols = headers.get('sec-websocket-protocol').split(',');
   const token = protocols.find((hdr) => hdr !== 'yjs').trim();
-  console.log('token', token);
-  return token === process.env.WS_TOKEN;
+  if (token !== process.env.WS_TOKEN) {
+    console.log('token mismatch: token=%s, protocols=%s', token, protocols);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -90,7 +93,7 @@ async function authorize(event) {
  * @returns {*} lambda response
  */
 export async function run(event, context) {
-  console.log('EVENT', event, context);
+  // console.log('EVENT', event, context);
 
   const { body, requestContext: { connectionId, routeKey } = {} } = event;
 
