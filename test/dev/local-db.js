@@ -77,7 +77,7 @@ function toBase64(attr) {
 export class LocalPersistence {
   #dir;
 
-  #debug = true;
+  #debug = false;
 
   constructor(dir = process.cwd()) {
     this.#dir = resolve(dir);

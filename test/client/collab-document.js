@@ -34,6 +34,7 @@ export class CollabDocument extends EventEmitter {
     this.userName = userName;
     this.server = DEFAULT_SERVER;
     this.room = 'prod00';
+    this.token = '*';
   }
 
   withServer(value) {
@@ -46,13 +47,18 @@ export class CollabDocument extends EventEmitter {
     return this;
   }
 
+  withToken(value) {
+    this.token = value;
+    return this;
+  }
+
   async setup() {
     const ydoc = new Y.Doc();
     this.provider = new WebsocketProvider(this.server, this.room, ydoc, {
       params: {
         doc: this.docName,
       },
-      protocols: ['yjs', '*'],
+      protocols: ['yjs', this.token],
       useBase64: true,
       connect: false,
     });

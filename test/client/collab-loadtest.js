@@ -9,27 +9,31 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
+import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
+import { config } from 'dotenv';
 import { CollabDocument } from './collab-document.js';
 import { schema } from './schema.js';
+
+config();
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
 });
 
-// const SERVER = 'https://z21npzmtdj.execute-api.us-east-1.amazonaws.com';
-
 const TEXT = 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.';
 
 async function testClient(docName, userName) {
   console.log(`--> starting ${docName} / ${userName}`);
+  const secrets = JSON.parse(await readFile('secrets.json', 'utf-8'));
   const doc = new CollabDocument(
     docName,
     schema,
     userName,
   );
   await doc
-    // .withServer(SERVER)
+    .withServer(process.env.WS_SERVER)
+    .withToken(secrets.WS_TOKEN)
     .setup();
 
   async function executeTest() {

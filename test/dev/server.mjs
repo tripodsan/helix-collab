@@ -20,7 +20,7 @@ const connectedClients = { };
 const storage = new Storage(new LocalPersistence('./tmp'));
 const send = async (id, b64Message) => {
   if (connectedClients[id]) {
-    console.log('[%d]< %s', id, b64Message);
+    // console.log('[%d]< %s', id, b64Message);
     connectedClients[id].send(b64Message);
   }
 };
@@ -45,7 +45,7 @@ wss.on('connection', async (ws, req) => {
   ws.on('error', console.error);
 
   ws.on('message', async (message) => {
-    console.log('[%d]> %s', id, message);
+    // console.log('[%d]> %s', id, message);
     try {
       await ysockets.onMessage(id, message.toString());
     } catch (e) {

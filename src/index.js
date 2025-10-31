@@ -27,7 +27,7 @@ function getDocName(event) {
 }
 
 async function send(api, id, message) {
-  console.log('send(%s, %s)', id, message);
+  // console.log('send(%s, %s)', id, message);
   try {
     await api.send(new PostToConnectionCommand(
       { ConnectionId: id, Data: message },

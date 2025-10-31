@@ -9,6 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
+import { randomUUID } from 'node:crypto';
 import * as syncProtocol from 'y-protocols/sync';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
@@ -21,6 +22,18 @@ import { SharedDocument } from './shared-document.js';
 
 const messageSync = 0;
 const messageAwareness = 1;
+
+const INSTANCE_ID = randomUUID();
+function logUsage(connectionId, docName, action) {
+  // use warn to better filter in logs
+  console.warn({
+    message: 'LOG_USAGE',
+    id: INSTANCE_ID,
+    cid: connectionId,
+    d: docName,
+    a: action,
+  });
+}
 
 export class YSockets {
   /**
@@ -69,7 +82,7 @@ export class YSockets {
       const state = Y.encodeStateAsUpdate(doc);
       await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
     }
-    console.log('send update');
+    // console.log('send update');
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
     syncProtocol.writeUpdate(encoder, update);
@@ -105,7 +118,7 @@ export class YSockets {
     } catch (e) {
       console.log('Something went wrong with applying the update', e);
     }
-    console.log('created ydoc for', docName);
+    // console.log('created ydoc for', docName);
 
     // sdoc.on('update', async (update, origin, doc) => {
     //   console.log('update', update, origin, doc.name);
@@ -155,17 +168,17 @@ export class YSockets {
   // eslint-disable-next-line class-methods-use-this
   async onSyncMessage(decoder, encoder, doc, transactionOrigin) {
     const messageType = decoding.readVarUint(decoder);
-    console.log('onSyncMessage ', messageType);
+    // console.log('onSyncMessage ', messageType);
     switch (messageType) {
       case syncProtocol.messageYjsSyncStep1:
         syncProtocol.readSyncStep1(decoder, encoder, doc);
         break;
       case syncProtocol.messageYjsSyncStep2:
-        console.log(`applying sync step2 to doc ${doc.name}`);
+        // console.log(`applying sync step2 to doc ${doc.name}`);
         syncProtocol.readSyncStep2(decoder, doc, transactionOrigin);
         break;
       case syncProtocol.messageYjsUpdate: {
-        console.log(`applying update to doc ${doc.name}`);
+        // console.log(`applying update to doc ${doc.name}`);
         syncProtocol.readUpdate(decoder, doc, transactionOrigin);
         break;
       }
@@ -181,6 +194,7 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onConnection(connectionId, docName) {
+    logUsage(connectionId, docName, 'connect');
     await this.#storage.addConnection(connectionId, docName);
     const doc = await this.getOrCreateDoc(connectionId, docName);
     const encoder = encoding.createEncoder();
@@ -201,6 +215,7 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onDisconnect(connectionId) {
+    logUsage(connectionId, '', 'disconnect');
     await this.#storage.removeConnection(connectionId);
     console.log(`[${connectionId}] disconnected`);
   }
@@ -217,9 +232,10 @@ export class YSockets {
     const encoder = encoding.createEncoder();
     const decoder = decoding.createDecoder(message);
     const messageCat = decoding.readVarUint(decoder);
-    console.log('[%d] message cat %d', connectionId, messageCat);
+    // console.log('[%d] message cat %d', connectionId, messageCat);
 
     const docName = (await this.#storage.getConnection(connectionId))?.docName;
+    logUsage(connectionId, docName, `message-${messageCat}`);
     if (!docName) {
       throw Error(`no connection for ${connectionId}`);
     }
