@@ -9,3 +9,11 @@ is invoked for every message received. this makes keeping state a bit more diffi
 - since dynamodb has a limit of 400kb per entry, a document that gets larger is also serialized to s3
 - (each document is also cached in memory, assuming that the same function container is reused)
 - 
+
+
+## fetch logs
+
+
+```
+awslogs get /aws/lambda/helix-services--collab-service -s1h --filter-pattern='{$.message.message = "LOG_USAGE"}' --query=message | cut -d' ' -f3- > logs.json
+```
