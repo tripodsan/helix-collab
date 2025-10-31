@@ -9,100 +9,52 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-import * as Y from 'yjs';
-import { WebsocketProvider } from '@adobe/y-websocket';
-import { ySyncPlugin, initProseMirrorDoc } from 'y-prosemirror';
-import { EditorState, TextSelection } from 'prosemirror-state';
-import { EditorView } from 'prosemirror-view';
-import jsdom from 'jsdom';
-import { schema } from './schema.js';
-import { yHeadlessCursorPlugin } from './headless-cursor-plugin.js';
-
-const { JSDOM } = jsdom;
+import { CollabDocument } from './collab-document.js';
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
 });
 
 // const SERVER = 'https://z21npzmtdj.execute-api.us-east-1.amazonaws.com';
-const SERVER = 'http://localhost:8080';
+
+const TEXT = 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.';
 
 async function client() {
-  const ydoc = new Y.Doc();
-  const provider = new WebsocketProvider(SERVER, 'prod00', ydoc, {
-    params: {
-      doc: 'test-room',
-    },
-    protocols: ['yjs', '*'],
-    useBase64: true,
-    connect: false,
-  });
-
-  const userName = `TestUser-${Math.floor(Math.random() * 100)}`;
-
-  const type = ydoc.getXmlFragment('prosemirror');
-  const virtualConsole = new jsdom.VirtualConsole();
-  virtualConsole.forwardTo(console);
-  const dom = new JSDOM('', { virtualConsole });
-  global.window = dom.window;
-  global.document = dom.window.document;
-  global.ClipboardEvent = Event;
-
-  const { doc, mapping } = initProseMirrorDoc(type, schema);
-  const view = new EditorView(null, {
-    state: EditorState.create({
-      doc,
-      schema,
-      plugins: [
-        ySyncPlugin(type, { mapping }),
-        yHeadlessCursorPlugin(provider.awareness),
-      ],
-    }),
-  });
+  const doc = new CollabDocument('test-room', `TestUser-${Math.floor(Math.random() * 100)}`);
+  await doc
+    // .withServer(SERVER)
+    .setup();
 
   async function executeTest() {
-    console.log('set user name to: ', userName);
-    provider.awareness.setLocalStateField('user', {
-      name: userName,
-      color: `#${Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, '0')}`,
-    });
-    console.log('test sleep 500...');
-    await sleep(500);
-    console.log('set selection');
+    doc.setCursor(0);
 
-    view.dispatch(
-      view.state.tr.setSelection(TextSelection.create(view.state.doc, 2)),
-    );
+    const words = TEXT.split(' ');
+    let delim = '';
+    for (const word of words) {
+      doc.pasteText(`${delim}${word}`);
+      delim = ' ';
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(word.length * 5 + Math.random() * 100);
+    }
+    doc.pasteText('\n');
 
-    console.log('test sleep 500...');
     await sleep(500);
-    console.log('insert hello');
-    view.pasteText('hello, world (pasted)!');
-    view.dispatch(
-      view.state.tr.insert(
-        0,
-        /** @type {any} */ (schema.node(
-          'paragraph',
-          undefined,
-          schema.text(`hello world from ${userName}`),
-        )),
-      ),
-    );
-    await sleep(500);
-    console.log('disconnet');
-    view.destroy();
-    provider.destroy();
+    doc.destroy();
   }
 
-  provider.on('status', async (arg) => {
-    console.log('status', arg);
-    console.log('clientID', provider.doc.clientID);
+  doc.on('status', async (arg) => {
     if (arg.status === 'connected') {
       setTimeout(executeTest, 100);
     }
   });
 
-  provider.connect();
+  doc.connect();
 }
 
-await client();
+client();
+await sleep(500);
+client();
+await sleep(500);
+client();
+await sleep(500);
+client();
