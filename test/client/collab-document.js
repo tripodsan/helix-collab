@@ -16,7 +16,6 @@ import { ySyncPlugin, initProseMirrorDoc } from 'y-prosemirror';
 import { EditorState, Selection, TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import jsdom from 'jsdom';
-import { schema } from './schema.js';
 import { yHeadlessCursorPlugin } from './headless-cursor-plugin.js';
 
 const { JSDOM } = jsdom;
@@ -28,9 +27,10 @@ export class CollabDocument extends EventEmitter {
   // bound event listener
   #onStatus;
 
-  constructor(docName, userName) {
+  constructor(docName, schema, userName) {
     super();
     this.docName = docName;
+    this.schema = schema;
     this.userName = userName;
     this.server = DEFAULT_SERVER;
     this.room = 'prod00';
@@ -70,11 +70,11 @@ export class CollabDocument extends EventEmitter {
     global.document = dom.window.document;
 
     const type = ydoc.getXmlFragment('prosemirror');
-    const { doc, mapping } = initProseMirrorDoc(type, schema);
+    const { doc, mapping } = initProseMirrorDoc(type, this.schema);
     this.view = new EditorView(null, {
       state: EditorState.create({
         doc,
-        schema,
+        schema: this.schema,
         plugins: [
           ySyncPlugin(type, { mapping }),
           yHeadlessCursorPlugin(this.provider.awareness),

@@ -10,6 +10,7 @@
  * governing permissions and limitations under the License.
  */
 import { CollabDocument } from './collab-document.js';
+import { schema } from './schema.js';
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -20,7 +21,11 @@ const sleep = (ms) => new Promise((resolve) => {
 const TEXT = 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.';
 
 async function client() {
-  const doc = new CollabDocument('test-room', `TestUser-${Math.floor(Math.random() * 100)}`);
+  const doc = new CollabDocument(
+    'test-room',
+    schema,
+    `TestUser-${Math.floor(Math.random() * 100)}`,
+  );
   await doc
     // .withServer(SERVER)
     .setup();
