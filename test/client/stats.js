@@ -48,6 +48,23 @@ async function run() {
   }
   console.table(funcs);
   console.table(conn);
+  console.log('  Functions: %d', Object.keys(funcs).length);
+  console.log('Connections: %d', Object.keys(conn).length);
+  const actions = {
+    count: 0,
+    num_connect: 0,
+    'num_message-0': 0,
+    'num_message-1': 0,
+    num_disconnect: 0,
+  };
+  for (const f of Object.values(funcs)) {
+    for (const k of Object.keys(actions)) {
+      if (f[k]) {
+        actions[k] += f[k];
+      }
+    }
+  }
+  console.table(actions);
 }
 
 run().catch(console.error);

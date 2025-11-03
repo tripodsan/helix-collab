@@ -23,16 +23,24 @@ import { SharedDocument } from './shared-document.js';
 const messageSync = 0;
 const messageAwareness = 1;
 
-const INSTANCE_ID = randomUUID();
+export const INSTANCE_ID = randomUUID();
 function logUsage(connectionId, docName, action) {
-  // use warn to better filter in logs
-  console.warn({
+  console.info({
     message: 'LOG_USAGE',
     id: INSTANCE_ID,
     cid: connectionId,
     d: docName,
     a: action,
   });
+}
+
+const ENABLE_TRACE = false;
+let traceCounter = 0;
+export function trace(msg) {
+  if (ENABLE_TRACE) {
+    // eslint-disable-next-line no-plusplus
+    console.log('[%s][%d] TRACE: %s', INSTANCE_ID, traceCounter++, msg);
+  }
 }
 
 export class YSockets {
@@ -53,6 +61,12 @@ export class YSockets {
   #incremental = true;
 
   /**
+   * internal promise that is resolved when the doc is updated
+   * @type {null}
+   */
+  #updatePromise = null;
+
+  /**
    * @param {Storage} storage
    * @returns {YSockets}
    */
@@ -66,28 +80,60 @@ export class YSockets {
   }
 
   /**
+   * waits until the document is updated.
+   * @returns {Promise<null>}
+   */
+  async updated() {
+    return this.#updatePromise;
+  }
+
+  /**
    * stores the updated doc in storage and broadcasts the update/
    * @param {Uint8Array} update
    * @param {?} origin
    * @param {Y.doc} doc
    * @returns {Promise<void>}
    */
-  async onUpdate(update, origin, doc) {
-    if (origin === this) {
-      console.log('update self');
-    }
-    if (this.#incremental) {
-      await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
-    } else {
-      const state = Y.encodeStateAsUpdate(doc);
-      await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
-    }
-    // console.log('send update');
+  async onUpdateBroadcast(update, origin, doc) {
+    trace('onUpdateBroadcast() - init');
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
     syncProtocol.writeUpdate(encoder, update);
     const message = encoding.toUint8Array(encoder);
     await this.broadcast(doc.name, doc.connectionId, message);
+    trace('onUpdateBroadcast() - done');
+  }
+
+  /**
+   * stores the updated doc in storage and broadcasts the update/
+   * @param {Uint8Array} update
+   * @param {?} origin
+   * @param {Y.doc} doc
+   * @returns {Promise<void>}
+   */
+  async onUpdateStore(update, origin, doc) {
+    trace('onUpdateStore() - init');
+    // this is a bit awkward. but if the ydoc triggers the update, we want to wait until
+    // the storage is updated before the lambda ends
+    let done = null;
+    this.#updatePromise = new Promise((resolve) => {
+      done = resolve;
+    });
+    try {
+      if (origin === this) {
+        console.log('update self');
+      }
+      if (this.#incremental) {
+        await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
+      } else {
+        const state = Y.encodeStateAsUpdate(doc);
+        await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
+      }
+    } finally {
+      trace('onUpdateStore() - done');
+      done();
+      this.updatePromise = null;
+    }
   }
 
   /**
@@ -97,6 +143,7 @@ export class YSockets {
    * @returns {Promise<SharedDocument>}
    */
   async getOrCreateDoc(connectionId, docName) {
+    trace('getOrCreate() - init');
     const doc = this.#incremental
       ? await this.#storage.getOrCreateDoc(docName, 'updates', [])
       : await this.#storage.getOrCreateDoc(docName, 'state', Buffer.alloc(0));
@@ -105,6 +152,8 @@ export class YSockets {
       .withName(docName)
       .withStorage(this.#storage)
       .withConnectionId(connectionId);
+
+    trace('getOrCreate() - apply doc updates');
 
     // apply update before init listeners
     try {
@@ -118,18 +167,13 @@ export class YSockets {
     } catch (e) {
       console.log('Something went wrong with applying the update', e);
     }
-    // console.log('created ydoc for', docName);
 
-    // sdoc.on('update', async (update, origin, doc) => {
-    //   console.log('update', update, origin, doc.name);
-    // });
-    // sdoc.on('destroy', (doc) => {
-    //   console.log('YDoc destroyed', doc.name);
-    // });
-    //
-    sdoc.on('update', this.onUpdate.bind(this));
+    sdoc.on('update', this.onUpdateBroadcast.bind(this));
+    sdoc.on('update', this.onUpdateStore.bind(this));
 
     sdoc.init();
+
+    trace('getOrCreate() - done');
 
     return sdoc;
   }
@@ -163,10 +207,10 @@ export class YSockets {
    * @param encoder
    * @param doc
    * @param transactionOrigin
-   * @returns {Promise<void>}
    */
   // eslint-disable-next-line class-methods-use-this
-  async onSyncMessage(decoder, encoder, doc, transactionOrigin) {
+  onSyncMessage(decoder, encoder, doc, transactionOrigin) {
+    trace('onSyncMessage() - init');
     const messageType = decoding.readVarUint(decoder);
     // console.log('onSyncMessage ', messageType);
     switch (messageType) {
@@ -185,6 +229,7 @@ export class YSockets {
       default:
         throw new Error('Unknown message type');
     }
+    trace('onSyncMessage() - done');
   }
 
   /**
@@ -228,11 +273,11 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onMessage(connectionId, b64Message) {
+    trace('onMessage() - init');
     const message = fromBase64(b64Message);
     const encoder = encoding.createEncoder();
     const decoder = decoding.createDecoder(message);
     const messageCat = decoding.readVarUint(decoder);
-    // console.log('[%d] message cat %d', connectionId, messageCat);
 
     const docName = (await this.#storage.getConnection(connectionId))?.docName;
     logUsage(connectionId, docName, `message-${messageCat}`);
@@ -243,10 +288,13 @@ export class YSockets {
       case messageSync: {
         const doc = await this.getOrCreateDoc(connectionId, docName);
         encoding.writeVarUint(encoder, messageSync);
-        await this.onSyncMessage(decoder, encoder, doc);
+        this.onSyncMessage(decoder, encoder, doc);
         if (encoding.length(encoder) > 1) {
+          trace('onMessage() - reply sync message');
           await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
         }
+        await this.updated();
+        trace('onMessage() - done sync message');
         break;
       }
       case messageAwareness: {

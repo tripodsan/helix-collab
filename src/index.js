@@ -14,7 +14,7 @@ import {
   PostToConnectionCommand,
 } from '@aws-sdk/client-apigatewaymanagementapi';
 import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lambda';
-import { YSockets } from './ysockets.js';
+import { trace, YSockets } from './ysockets.js';
 import { Storage } from './storage.js';
 import { DDBPersistence } from './ddb-persistence.js';
 
@@ -114,6 +114,7 @@ export async function run(event, context) {
           body: 'Unauthorized',
         };
       }
+      trace('$connect');
       const docName = getDocName(event);
       const ctx = {
         arn: context.invokedFunctionArn,
@@ -126,7 +127,6 @@ export async function run(event, context) {
       await ysockets.onConnection(connectionId, docName);
       return {
         statusCode: 200,
-        body: 'Connected.',
         headers: {
           'Sec-WebSocket-Protocol': 'yjs',
         },
@@ -136,31 +136,37 @@ export async function run(event, context) {
     ysockets = new YSockets(storage, send.bind(null, callbackAPI));
     switch (routeKey) {
       case '$disconnect': {
+        trace('$disconnect');
         await ysockets.onDisconnect(connectionId);
-        return { statusCode: 200, body: 'Disconnected.' };
+        return { statusCode: 200 };
       }
       case '$default':
+        trace('$default');
         await ysockets.onMessage(connectionId, body);
-        return { statusCode: 200, body: 'Data Sent' };
+        return { statusCode: 200 };
       case '$sendmessage':
+        trace('$sendmessage');
         // special route to handle message during connect
         console.log('handling async message from self.');
         await send(callbackAPI, connectionId, body);
-        return { statusCode: 200, body: 'Data Sent' };
+        return { statusCode: 200 };
       default:
         // this is via the http api
         return {
           status: 200,
-          body: 'hello, world!',
+          body: 'ok',
         };
     }
   } catch (e) {
+    trace(`error ${e}`);
     console.error('Internal Error:', e);
     return {
       status: 500,
       body: `Internal Error: ${e}`,
     };
   } finally {
-    ysockets?.destroy();
+    trace('before destroy');
+    await ysockets?.destroy();
+    trace('eol');
   }
 }

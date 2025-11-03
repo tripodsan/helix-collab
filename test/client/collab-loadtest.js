@@ -22,6 +22,7 @@ const sleep = (ms) => new Promise((resolve) => {
 });
 
 const TEXT = 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.';
+// const TEXT = 'Lorem ipsum.';
 
 async function testClient(docName, userName) {
   console.log(`--> starting ${docName} / ${userName}`);
@@ -39,11 +40,12 @@ async function testClient(docName, userName) {
   async function executeTest() {
     doc.setCursor(0);
     const words = TEXT.split(' ');
+    console.log(`--> sending ${words.length} words to ${docName} / ${userName}`);
     words.unshift(`Hello from ${userName}: `);
     for (const word of words) {
       doc.pasteText(` ${word}`);
       // eslint-disable-next-line no-await-in-loop
-      await sleep(word.length * 5 + Math.random() * 100);
+      await sleep(word.length * 10 + Math.random() * 100 + 200);
     }
     doc.pasteText('\n');
 
@@ -54,7 +56,7 @@ async function testClient(docName, userName) {
   const done = new Promise((resolve) => {
     doc.on('status', async (arg) => {
       if (arg.status === 'connected') {
-        setTimeout(executeTest, 100);
+        setTimeout(executeTest, 500);
       }
       if (arg.status === 'disconnected') {
         console.log(`<-- ending ${docName} / ${userName}`);
@@ -72,7 +74,7 @@ async function documentTest(docName, numUsers) {
   for (let i = 0; i < numUsers; i += 1) {
     clients.push(testClient(docName, `test-user-${i}`));
     // eslint-disable-next-line no-await-in-loop
-    await sleep(500);
+    await sleep(1000);
   }
   await Promise.allSettled(clients);
 }

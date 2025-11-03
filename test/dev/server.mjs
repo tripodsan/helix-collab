@@ -15,6 +15,8 @@ import { YSockets } from '../../src/ysockets.js';
 import { LocalPersistence } from './local-db.js';
 
 const wss = new WebSocketServer({ port: 8080 });
+console.log('Listening on ws://localhost:8080');
+
 let nextId = 0;
 const connectedClients = { };
 const storage = new Storage(new LocalPersistence('./tmp'));
@@ -62,7 +64,4 @@ wss.on('connection', async (ws, req) => {
   console.log('[%d] New connection to document "%s"', id, docName);
   await ysockets.onConnection(id, docName);
   console.log('[%d] New connection to document "%s" complete', id, docName);
-
 });
-
-console.log('Listening on ws://localhost:5000');
