@@ -9,6 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
+import { fork } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { format, parseArgs } from 'node:util';
 import { config } from 'dotenv';
@@ -69,16 +70,6 @@ async function testClient(docName, userName) {
   return done;
 }
 
-async function documentTest(docName, numUsers) {
-  const clients = [];
-  for (let i = 0; i < numUsers; i += 1) {
-    clients.push(testClient(docName, `test-user-${i}`));
-    // eslint-disable-next-line no-await-in-loop
-    await sleep(1000);
-  }
-  await Promise.allSettled(clients);
-}
-
 async function run() {
   const options = {
     num: {
@@ -94,12 +85,13 @@ async function run() {
     docPattern: {
       type: 'string',
       short: 'd',
-      default: 'test-doc-%d',
+      default: '/tripodsan/helix-test-v6/test-doc-%d.html',
     },
-    docSuffix: {
+    user: {
       type: 'string',
-      short: 'd',
-      default: 'test-doc-',
+    },
+    doc: {
+      type: 'string',
     },
     help: {
       type: 'boolean',
@@ -112,15 +104,24 @@ async function run() {
     console.log('node collab-loadtest.js -n num -c concurrent');
     process.exit(0);
   }
+  if (values.user && values.doc) {
+    await testClient(values.doc, values.user);
+    return;
+  }
+
   const numDocs = Number.parseInt(values.num, 10);
   const numUsers = Number.parseInt(values.concurrent, 10);
 
   const tests = [];
   for (let n = 0; n < numDocs; n += 1) {
     const docName = format(values.docPattern, n);
-    tests.push(documentTest(docName, numUsers));
+    for (let i = 0; i < numUsers; i += 1) {
+      const userName = `test-user-${i}`;
+      tests.push(fork(process.argv[1], ['--user', userName, '--doc', docName]));
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(1000);
+    }
   }
-  await Promise.allSettled(tests);
 }
 
 run().catch(console.error);
