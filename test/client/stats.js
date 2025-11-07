@@ -18,38 +18,63 @@ async function run() {
 
   const funcs = {};
   const conn = {};
+  const cache = {
+    connection: {
+      miss: 0,
+      hit: 0,
+    },
+    index: {
+      miss: 0,
+      hit: 0,
+      stale: 0,
+    },
+  };
+  let nr = 0;
 
   for (const row of data) {
     const s = JSON.parse(row);
-    let f = funcs[s.id];
-    if (!f) {
-      f = {
-        count: 0,
-        connections: {},
-      };
-      funcs[s.id] = f;
-    }
-    f.count += 1;
-    const act = `num_${s.a}`;
-    f[act] = (f[act] || 0) + 1;
-    f.connections[s.cid] = (f.connections[s.cid] || 0) + 1;
+    if (s.message === 'LOG_USAGE') {
+      let f = funcs[s.id];
+      if (!f) {
+        f = {
+          // eslint-disable-next-line no-plusplus
+          nr: nr++,
+          count: 0,
+          connections: {},
+        };
+        funcs[s.id] = f;
+      }
+      f.count += 1;
+      const act = `num_${s.a}`;
+      f[act] = (f[act] || 0) + 1;
+      f.connections[s.cid] = (f.connections[s.cid] || 0) + 1;
 
-    let c = conn[s.cid];
-    if (!c) {
-      c = {
-        functions: {},
-      };
-      conn[s.cid] = c;
+      let c = conn[s.cid];
+      if (!c) {
+        c = {
+          functions: {},
+          docs: {},
+        };
+        conn[s.cid] = c;
+      }
+      c.functions[nr] = (c.functions[nr] || 0) + 1;
+      c.docs[s.d] = (c.docs[s.d] || 0) + 1;
     }
-    c.functions[s.id] = (c.functions[s.id] || 0) + 1;
+    if (s.message === 'LOG_CACHE') {
+      cache[s.c][s.t] += 1;
+    }
   }
   for (const f of Object.values(funcs)) {
     f.connections = Object.keys(f.connections).length;
   }
+  for (const f of Object.values(conn)) {
+    f.functions = Object.keys(f.functions).length;
+    f.docs = JSON.stringify(f.docs);
+  }
+  console.log('Functions: %d', Object.keys(funcs).length);
   console.table(funcs);
-  console.table(conn);
-  console.log('  Functions: %d', Object.keys(funcs).length);
   console.log('Connections: %d', Object.keys(conn).length);
+  console.table(conn);
   const actions = {
     count: 0,
     num_connect: 0,
@@ -65,6 +90,10 @@ async function run() {
     }
   }
   console.table(actions);
+  console.log('Connection cache stats:');
+  console.table(cache.connection);
+  console.log('Index cache stats:');
+  console.table(cache.index);
 }
 
 run().catch(console.error);

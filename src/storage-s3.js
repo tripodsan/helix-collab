@@ -9,19 +9,10 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-import { INSTANCE_ID } from './ysockets.js';
+import {S3Client} from "@aws-sdk/client-s3";
 
 const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
 const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
-
-function logCache(cache, type) {
-  console.info({
-    message: 'LOG_CACHE',
-    id: INSTANCE_ID,
-    c: cache,
-    t: type,
-  });
-}
 
 /**
  * Global in-memory connection cache
@@ -47,7 +38,7 @@ function cacheConnection(connectionItem) {
     conns = {
       ids: new Set(),
       // remember when the cache was last refreshed from the DB
-      lastRefreshed: Date.now(),
+      lastRefreshed: 0,
     };
     ConnectionsByDocCache.set(docName, conns);
   }
@@ -84,31 +75,26 @@ function removeConnectionCache(id) {
 
 export class Storage {
   /**
-   * @type DDBPersistence
+   * @type S3Client
    */
-  #ps;
+  #client;
 
   /**
-   * @type string
+   * @type {string}
    */
-  #docTableName;
-
-  /**
-   * @type string
-   */
-  #conTableName;
+  #bucketId = 'helix-tier3-test-bucket';
 
   /**
    * @param {DDBPersistence} persistence
    */
   constructor(persistence) {
-    this.#ps = persistence;
-    this.#docTableName = DOC_TABLE_NAME;
-    this.#conTableName = CON_TABLE_NAME;
+    this.#client = new S3Client({
+      region: 'us-east-1',
+    });
   }
 
   destroy() {
-    this.#ps.destroy();
+    this.#client.destroy();
   }
 
   /**
@@ -139,11 +125,11 @@ export class Storage {
     if (!item) {
       item = await this.#ps.getItem(this.#conTableName, 'id', id);
       if (item) {
-        logCache('connection', 'miss');
+        console.log('cache miss for connection %s', id);
         cacheConnection(item);
       }
     } else {
-      logCache('connection', 'hit');
+      console.log('cache hit for connection %s', id);
     }
     return item;
   }
@@ -166,26 +152,27 @@ export class Storage {
   async getConnectionIds(docName) {
     let conns = ConnectionsByDocCache.get(docName);
     if (!conns) {
-      logCache('index', 'miss');
-      conns = {
-        ids: new Set(),
-        lastRefreshed: Date.now(),
-      };
-      ConnectionsByDocCache.set(docName, conns);
+      console.log('no connections cached for doc %s', docName);
     } else {
       const now = Date.now();
-      if ((now - conns.lastRefreshed) < 5000) {
-        logCache('index', 'hit');
+      if (conns && (now - conns.lastRefreshed) < 5000) {
+        console.log('connection ids cache hit for doc %s', docName);
         return Array.from(conns.ids);
-      } else {
-        logCache('index', 'stale');
       }
+      console.log('connection ids cache miss for doc %s', docName);
       conns.lastRefreshed = now;
     }
     const ret = await this.#ps
       .listItems(this.#conTableName, 'docName', docName, 'docName-index');
     const ids = ret.map(({ id }) => id) ?? [];
     // update the cache
+    if (!conns) {
+      conns = {
+        ids: new Set(),
+        lastRefreshed: Date.now(),
+      };
+      ConnectionsByDocCache.set(docName, conns);
+    }
     ids.forEach((id) => conns.ids.add(id));
     return ids;
   }

@@ -260,8 +260,8 @@ export class YSockets {
    * @returns {Promise<void>}
    */
   async onDisconnect(connectionId) {
-    logUsage(connectionId, '', 'disconnect');
-    await this.#storage.removeConnection(connectionId);
+    const item = await this.#storage.removeConnection(connectionId);
+    logUsage(connectionId, item?.docName, 'disconnect');
     console.log(`[${connectionId}] disconnected`);
   }
 

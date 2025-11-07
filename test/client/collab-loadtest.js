@@ -10,7 +10,7 @@
  * governing permissions and limitations under the License.
  */
 import { readFile } from 'node:fs/promises';
-import { parseArgs } from 'node:util';
+import { format, parseArgs } from 'node:util';
 import { config } from 'dotenv';
 import { CollabDocument } from './collab-document.js';
 import { schema } from './schema.js';
@@ -91,6 +91,16 @@ async function run() {
       short: 'c',
       default: '1',
     },
+    docPattern: {
+      type: 'string',
+      short: 'd',
+      default: 'test-doc-%d',
+    },
+    docSuffix: {
+      type: 'string',
+      short: 'd',
+      default: 'test-doc-',
+    },
     help: {
       type: 'boolean',
       short: 'h',
@@ -107,7 +117,8 @@ async function run() {
 
   const tests = [];
   for (let n = 0; n < numDocs; n += 1) {
-    tests.push(documentTest(`test-doc-${n}`, numUsers));
+    const docName = format(values.docPattern, n);
+    tests.push(documentTest(docName, numUsers));
   }
   await Promise.allSettled(tests);
 }

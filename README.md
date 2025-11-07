@@ -15,5 +15,5 @@ is invoked for every message received. this makes keeping state a bit more diffi
 
 
 ```
-awslogs get /aws/lambda/helix-services--collab-service -s1h --filter-pattern='{$.message.message = "LOG_USAGE"}' --query=message | cut -d' ' -f3- > logs.json
+awslogs get /aws/lambda/helix-services--collab-service -s1h --filter-pattern='{($.message.message = "LOG_USAGE") || ($.message.message = "LOG_CACHE")}' --query=message | cut -d' ' -f3- > logs.json
 ```
