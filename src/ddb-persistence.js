@@ -174,22 +174,47 @@ export class DDBPersistence {
    * @param key
    * @param attrName
    * @param attr
-   * @returns {Promise<boolean>}
+   * @returns {Promise<DocumentItem>}
    */
   async appendItemValue(tableName, keyName, key, attrName, attr) {
     const ret = await this.#docClient.update({
       TableName: tableName,
-      UpdateExpression: `SET ${attrName} = list_append(${attrName}, :attrValue)`,
+      UpdateExpression: `SET ${attrName} = list_append(${attrName}, :attrValue), prt = if_not_exists(prt, :now)`,
       Key: {
         [keyName]: key,
       },
       ExpressionAttributeValues: {
         ':attrValue': [attr],
+        ':now': Date.now(),
       },
+      ReturnValues: 'ALL_NEW',
     });
     if (this.#debug) {
       console.log('updateItemValue(%s, %s:%s, %s:%s) -> %j', tableName, keyName, key, attrName, attr, ret);
     }
-    return ret.$metadata.httpStatusCode === 200;
+    return ret.Attributes;
+  }
+
+  /**
+   * Removes an attribute from an item
+   * @param tableName
+   * @param keyName
+   * @param key
+   * @param attrName
+   * @returns {Promise<Record<string, any>>}
+   */
+  async removeAttribute(tableName, keyName, key, attrName) {
+    const ret = await this.#docClient.update({
+      TableName: tableName,
+      UpdateExpression: `REMOVE ${attrName}`,
+      Key: {
+        [keyName]: key,
+      },
+      ReturnValues: 'ALL_NEW',
+    });
+    if (this.#debug) {
+      console.log('clearAttribute(%s, %s:%s, %s) -> %j', tableName, keyName, key, attrName, ret);
+    }
+    return ret.Attributes;
   }
 }

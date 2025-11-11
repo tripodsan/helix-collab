@@ -11,15 +11,20 @@
  */
 import { WebSocketServer } from 'ws';
 import { Storage } from '../../src/storage.js';
+import { StorageS3 } from '../../src/storage-s3.js';
 import { YSockets } from '../../src/ysockets.js';
 import { LocalPersistence } from './local-db.js';
+import {DDBPersistence} from "../../src/ddb-persistence.js";
 
 const wss = new WebSocketServer({ port: 8080 });
 console.log('Listening on ws://localhost:8080');
 
 let nextId = 0;
 const connectedClients = { };
-const storage = new Storage(new LocalPersistence('./tmp'));
+// const storage = new Storage(new LocalPersistence('./tmp'));
+const storage = new Storage(new DDBPersistence());
+
+// const storage = new StorageS3();
 const send = async (id, b64Message) => {
   if (connectedClients[id]) {
     // console.log('[%d]< %s', id, b64Message);
@@ -40,7 +45,7 @@ function getDocName(params) {
 wss.on('connection', async (ws, req) => {
   const url = new URL(`wss://localhost:8080${req.url}`);
   const docName = getDocName(url.searchParams);
-  const id = nextId;
+  const id = String(nextId);
   nextId += 1;
   connectedClients[id] = ws;
 

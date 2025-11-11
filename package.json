@@ -47,6 +47,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@adobe/fetch": "4.2.3",
+    "@adobe/helix-shared-storage": "1.8.0",
     "@adobe/helix-shared-wrap": "2.0.2",
     "@adobe/helix-status": "10.1.5",
     "@aws-sdk/client-apigatewaymanagementapi": "3.908.0",
@@ -54,7 +55,12 @@
     "@aws-sdk/client-lambda": "3.910.0",
     "@aws-sdk/client-s3": "3.922.0",
     "@aws-sdk/lib-dynamodb": "3.908.0",
+    "hast-util-from-html": "^2.0.3",
+    "hast-util-select": "^6.0.4",
     "lib0": "0.2.114",
+    "prosemirror-model": "^1.25.4",
+    "prosemirror-schema-list": "^1.5.1",
+    "prosemirror-tables": "^1.8.1",
     "ws": "8.18.3",
     "y-protocols": "1.0.6",
     "yjs": "13.6.27"
@@ -92,7 +98,7 @@
     "*.js": "eslint"
   },
   "nodemonConfig": {
-    "exec": "node  ./test/dev/server.mjs",
+    "exec": "node  --inspect ./test/dev/server.mjs",
     "watch": [
       ".env",
       "."

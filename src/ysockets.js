@@ -18,7 +18,7 @@ import { toBase64, fromBase64 } from 'lib0/buffer';
 
 import * as Y from 'yjs';
 import { GoneException } from '@aws-sdk/client-apigatewaymanagementapi';
-import { SharedDocument } from './shared-document.js';
+import { SharedDocument } from './doc/shared-document.js';
 
 const messageSync = 0;
 const messageAwareness = 1;
@@ -124,7 +124,13 @@ export class YSockets {
         console.log('update self');
       }
       if (this.#incremental) {
-        await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
+        const attrs = await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
+        // we can't really debounce in AWS lambda, as the function might end right away.
+        // so we trac the 'prt' (persist request time) in the document attrs.
+        const { prt } = attrs;
+        if (prt && Date.now() - prt > 2000) {
+          await this.#storage.persistDocumentDocument(doc.name);
+        }
       } else {
         const state = Y.encodeStateAsUpdate(doc);
         await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
@@ -202,7 +208,7 @@ export class YSockets {
   }
 
   /**
-   * Handls the sync message received from client
+   * Handle the sync message received from client
    * @param decoder
    * @param encoder
    * @param doc

@@ -10,6 +10,7 @@
  * governing permissions and limitations under the License.
  */
 import * as Y from 'yjs';
+import {doc2aem} from "./collab.js";
 
 export class SharedDocument extends Y.Doc {
 
@@ -34,10 +35,9 @@ export class SharedDocument extends Y.Doc {
     return this;
   }
 
-  onUpdate(update, origin, doc) {
-    if (origin === this) {
-      console.log('update self');
-    }
+  async onUpdate(update, origin, doc) {
+    // const content = doc2aem(this);
+    // await this.#storage.put(this.name, content);
   }
 
   /**

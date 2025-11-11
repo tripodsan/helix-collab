@@ -14,7 +14,7 @@ import { INSTANCE_ID } from './ysockets.js';
 const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
 const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
 
-function logCache(cache, type) {
+export function logCache(cache, type) {
   console.info({
     message: 'LOG_CACHE',
     id: INSTANCE_ID,
@@ -80,6 +80,7 @@ function removeConnectionCache(id) {
  * @typedef DocumentItem
  * @property {string} docName
  * @property {string[]} updates
+ * @property {number} lastModified
  */
 
 export class Storage {
@@ -222,7 +223,7 @@ export class Storage {
    * @param {string} docName
    * @param attrName
    * @param attrValue
-   * @returns {Promise<boolean>}
+   * @returns {Promise<DocumentItem>}
    */
   async updateDoc(docName, attrName, attrValue) {
     return this.#ps.appendItemValue(this.#docTableName, 'docName', docName, attrName, attrValue);
@@ -236,5 +237,15 @@ export class Storage {
    */
   async storeDoc(docName, attrName, attrValue) {
     return this.#ps.updateItem(this.#docTableName, 'docName', docName, attrName, attrValue);
+  }
+
+  /**
+   * persists the document state to the persistence layer
+   * @param docName
+   * @returns {Promise<void>}
+   */
+  async persistDocumentDocument(docName) {
+    console.log('!!! persist !!!');
+    return this.#ps.removeAttribute(this.#docTableName, 'docName', docName, 'prt');
   }
 }

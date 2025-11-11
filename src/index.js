@@ -17,6 +17,7 @@ import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lam
 import { trace, YSockets } from './ysockets.js';
 import { Storage } from './storage.js';
 import { DDBPersistence } from './ddb-persistence.js';
+import {StorageS3} from "./storage-s3.js";
 
 function getDocName(event) {
   const doc = event.queryStringParameters?.doc;
@@ -98,6 +99,7 @@ export async function run(event, context) {
   const { body, requestContext: { connectionId, routeKey } = {} } = event;
 
   const storage = new Storage(new DDBPersistence());
+  // const storage = new StorageS3();
   const callbackAPI = new ApiGatewayManagementApiClient({
     apiVersion: '2018-11-29',
     endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,

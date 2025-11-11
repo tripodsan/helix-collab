@@ -71,30 +71,52 @@ describe('db test', () => {
     await con.removeDoc('test-doc');
     assert.strictEqual(await con.getDoc('test-doc'), null);
 
-    let ret = await con.getOrCreateDoc('test-doc');
+    let ret = await con.getOrCreateDoc('test-doc', 'updates', ['1234']);
+    const { lastUpdated } = ret;
+    assert.ok(lastUpdated <= Date.now());
+    delete ret.lastUpdated;
     assert.deepStrictEqual(ret, {
       docName: 'test-doc',
-      updates: [],
+      updates: ['1234'],
     });
 
     ret = await con.getDoc('test-doc');
     assert.deepStrictEqual(ret, {
       docName: 'test-doc',
-      updates: [],
+      lastUpdated,
+      updates: ['1234'],
+    });
+  });
+
+  it('get or create returns existing doc', async () => {
+    await con.removeDoc('test-doc');
+    assert.strictEqual(await con.getDoc('test-doc'), null);
+    let ret = await con.getOrCreateDoc('test-doc', 'updates', ['1234']);
+    const { lastUpdated } = ret;
+
+    ret = await con.getOrCreateDoc('test-doc', 'updates', ['4567']);
+    assert.deepStrictEqual(ret, {
+      docName: 'test-doc',
+      lastUpdated,
+      updates: ['1234'],
     });
   });
 
   it('updates a doc', async () => {
     await con.removeDoc('test-doc');
-    await con.getOrCreateDoc('test-doc');
+    let ret = await con.getOrCreateDoc('test-doc', 'updates', ['1234']);
+    const { lastUpdated } = ret;
 
-    let ret = await con.updateDoc('test-doc', 'update-1');
+    ret = await con.updateDoc('test-doc', 'updates', 'update-1');
     assert.strictEqual(ret, true);
 
-    ret = await con.getOrCreateDoc('test-doc');
+    ret = await con.getDoc('test-doc');
+    const newLastUpdated = ret.lastUpdated;
+    assert.ok(newLastUpdated >= lastUpdated);
+    delete ret.lastUpdated;
     assert.deepStrictEqual(ret, {
       docName: 'test-doc',
-      updates: ['update-1'],
+      updates: ['1234', 'update-1'],
     });
   });
 });

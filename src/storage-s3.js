@@ -9,10 +9,9 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-import {S3Client} from "@aws-sdk/client-s3";
 
-const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
-const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
+import { HelixStorage } from '@adobe/helix-shared-storage';
+import { logCache } from './storage.js';
 
 /**
  * Global in-memory connection cache
@@ -60,6 +59,42 @@ function removeConnectionCache(id) {
   }
 }
 
+function getDocKey(docName) {
+  return `/helix-collab/docs/${docName}.json`.replaceAll(/\/+/g, '/');
+}
+
+/**
+ * Converts the document item from base64 encoding to Buffer
+ * @param {DocumentItem} item
+ */
+function fromBase64(item) {
+  for (const [k, v] of Object.entries(item)) {
+    if (k === 'state') {
+      // eslint-disable-next-line no-param-reassign
+      item[k] = Buffer.from(v, 'base64');
+    } else if (k === 'updates' && Array.isArray(v)) {
+      v.forEach((e, i) => {
+        v[i] = Buffer.from(e, 'base64');
+      });
+    }
+  }
+  return item;
+}
+
+/**
+ * Converts attribute to base64 encoding
+ * @param attr
+ * @returns {*|string}
+ */
+function toBase64(attr) {
+  if (attr instanceof Buffer) {
+    return attr.toString('base64');
+  } else if (Array.isArray(attr)) {
+    return attr.map((e) => toBase64(e));
+  }
+  return attr;
+}
+
 /**
  * @typedef ConnectionItem
  * @property {string} id
@@ -73,11 +108,16 @@ function removeConnectionCache(id) {
  * @property {string[]} updates
  */
 
-export class Storage {
+export class StorageS3 {
   /**
-   * @type S3Client
+   * @type {HelixStorage}
    */
-  #client;
+  #sharedStorage;
+
+  /**
+   * @type {Bucket}
+   */
+  #bucket;
 
   /**
    * @type {string}
@@ -85,16 +125,32 @@ export class Storage {
   #bucketId = 'helix-tier3-test-bucket';
 
   /**
-   * @param {DDBPersistence} persistence
    */
-  constructor(persistence) {
-    this.#client = new S3Client({
-      region: 'us-east-1',
+  constructor() {
+    this.#sharedStorage = new HelixStorage({
+      disableR2: true,
     });
+    this.#bucket = this.#sharedStorage.bucket(this.#bucketId, true);
   }
 
   destroy() {
-    this.#client.destroy();
+    this.#sharedStorage.close();
+  }
+
+  async #loadConnections() {
+    const data = await this.#bucket.get('/helix-collab/connections.json');
+    if (data) {
+      return JSON.parse(data);
+    }
+    return {};
+  }
+
+  async #saveConnections(cons) {
+    await this.#bucket.put(
+      '/helix-collab/connections.json',
+      JSON.stringify(cons),
+      'application/json',
+    );
   }
 
   /**
@@ -109,10 +165,13 @@ export class Storage {
       docName,
       created: new Date().toISOString(),
     };
-    // note quite correct to update the connection in the cache, but we don't care about the
+    // not quite correct to update the connection in the cache, but we don't care about the
     // created time in the cache (yet)
     cacheConnection(item);
-    return this.#ps.createItem(this.#conTableName, item);
+    const cons = await this.#loadConnections();
+    cons[id] = item;
+    await this.#saveConnections(cons);
+    return item;
   }
 
   /**
@@ -123,13 +182,14 @@ export class Storage {
   async getConnection(id) {
     let item = ConnectionCache.get(id);
     if (!item) {
-      item = await this.#ps.getItem(this.#conTableName, 'id', id);
+      const cons = await this.#loadConnections();
+      item = cons[id];
       if (item) {
-        console.log('cache miss for connection %s', id);
+        logCache('connection', 'miss');
         cacheConnection(item);
       }
     } else {
-      console.log('cache hit for connection %s', id);
+      logCache('connection', 'hit');
     }
     return item;
   }
@@ -141,7 +201,13 @@ export class Storage {
    */
   async removeConnection(id) {
     removeConnectionCache(id);
-    return this.#ps.removeItem(this.#conTableName, 'id', id);
+    const cons = await this.#loadConnections();
+    if (cons[id]) {
+      delete cons[id];
+      await this.#saveConnections(cons);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -152,27 +218,25 @@ export class Storage {
   async getConnectionIds(docName) {
     let conns = ConnectionsByDocCache.get(docName);
     if (!conns) {
-      console.log('no connections cached for doc %s', docName);
-    } else {
-      const now = Date.now();
-      if (conns && (now - conns.lastRefreshed) < 5000) {
-        console.log('connection ids cache hit for doc %s', docName);
-        return Array.from(conns.ids);
-      }
-      console.log('connection ids cache miss for doc %s', docName);
-      conns.lastRefreshed = now;
-    }
-    const ret = await this.#ps
-      .listItems(this.#conTableName, 'docName', docName, 'docName-index');
-    const ids = ret.map(({ id }) => id) ?? [];
-    // update the cache
-    if (!conns) {
+      logCache('index', 'miss');
       conns = {
         ids: new Set(),
         lastRefreshed: Date.now(),
       };
       ConnectionsByDocCache.set(docName, conns);
+    } else {
+      const now = Date.now();
+      if ((now - conns.lastRefreshed) < 5000) {
+        logCache('index', 'hit');
+        return Array.from(conns.ids);
+      } else {
+        logCache('index', 'stale');
+      }
+      conns.lastRefreshed = now;
     }
+    const ret = await this.#loadConnections();
+    const ids = Object.values(ret).map(({ id }) => id) ?? [];
+    // update the cache
     ids.forEach((id) => conns.ids.add(id));
     return ids;
   }
@@ -182,7 +246,11 @@ export class Storage {
    * @returns {Promise<DocumentItem>}
    */
   async getDoc(docName) {
-    return this.#ps.getItem(this.#docTableName, 'docName', docName);
+    const data = await this.#bucket.get(getDocKey(docName));
+    if (data) {
+      return fromBase64(JSON.parse(data));
+    }
+    return null;
   }
 
   /**
@@ -190,7 +258,7 @@ export class Storage {
    * @returns {Promise<boolean>}
    */
   async removeDoc(docName) {
-    return this.#ps.removeItem(this.#docTableName, 'docName', docName);
+    await this.#bucket.remove(getDocKey(docName));
   }
 
   /**
@@ -201,7 +269,14 @@ export class Storage {
    * @returns {Promise<DocumentItem>}
    */
   async getOrCreateDoc(docName, attrName, attrValue) {
-    return this.#ps.getOrCreateItem(this.#docTableName, 'docName', docName, attrName, attrValue);
+    const data = await this.#bucket.get(getDocKey(docName));
+    if (data) {
+      return fromBase64(JSON.parse(data));
+    }
+    return {
+      name: docName,
+      [attrName]: attrValue,
+    };
   }
 
   /**
@@ -212,7 +287,20 @@ export class Storage {
    * @returns {Promise<boolean>}
    */
   async updateDoc(docName, attrName, attrValue) {
-    return this.#ps.appendItemValue(this.#docTableName, 'docName', docName, attrName, attrValue);
+    // eslint-disable-next-line no-param-reassign
+    attrValue = toBase64(attrValue);
+    let doc;
+    const data = await this.#bucket.get(getDocKey(docName));
+    if (!data) {
+      doc = {
+        name: docName,
+        [attrName]: [attrValue],
+      };
+    } else {
+      doc = JSON.parse(data);
+      doc[attrName].push(attrValue);
+    }
+    await this.#bucket.put(getDocKey(docName), JSON.stringify(doc), 'application/json');
   }
 
   /**
@@ -222,6 +310,11 @@ export class Storage {
    * @returns {Promise<DocumentItem>}
    */
   async storeDoc(docName, attrName, attrValue) {
-    return this.#ps.updateItem(this.#docTableName, 'docName', docName, attrName, attrValue);
+    const doc = {
+      name: docName,
+      [attrName]: toBase64(attrValue),
+    };
+    // eslint-disable-next-line no-param-reassign
+    await this.#bucket.put(getDocKey(docName), JSON.stringify(doc), 'application/json');
   }
 }
