@@ -124,13 +124,10 @@ export class YSockets {
         console.log('update self');
       }
       if (this.#incremental) {
-        const attrs = await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
+        await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
         // we can't really debounce in AWS lambda, as the function might end right away.
-        // so we trac the 'prt' (persist request time) in the document attrs.
-        const { prt } = attrs;
-        if (prt && Date.now() - prt > 2000) {
-          await this.#storage.persistDocumentDocument(doc.name);
-        }
+        // so we track the debounce time in the debounce table and send an SQS to persist later.
+        await this.#storage.debounceUpdate(doc.name);
       } else {
         const state = Y.encodeStateAsUpdate(doc);
         await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
@@ -140,6 +137,23 @@ export class YSockets {
       done();
       this.updatePromise = null;
     }
+  }
+
+  /**
+   * handles the debounce update
+   * @param {string} docName
+   * @returns {Promise<void>}
+   */
+  async onDebounceUpdate(docName) {
+    console.log('[debounce] update request received for %s', docName);
+    trace('onDebounceUpdate() - init');
+    if (!await this.#storage.isUpdateDebounced(docName)) {
+      console.log('[debounce] doc still bouncing %s', docName);
+      return;
+    }
+    console.log('[debounce] doc debounced %s', docName);
+    const doc = await this.getOrCreateDoc('', docName);
+    await this.#storage.persistDocument(doc);
   }
 
   /**
@@ -156,7 +170,6 @@ export class YSockets {
 
     const sdoc = new SharedDocument()
       .withName(docName)
-      .withStorage(this.#storage)
       .withConnectionId(connectionId);
 
     trace('getOrCreate() - apply doc updates');
@@ -176,8 +189,6 @@ export class YSockets {
 
     sdoc.on('update', this.onUpdateBroadcast.bind(this));
     sdoc.on('update', this.onUpdateStore.bind(this));
-
-    sdoc.init();
 
     trace('getOrCreate() - done');
 

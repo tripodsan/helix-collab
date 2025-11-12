@@ -12,6 +12,9 @@
 import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
 
+/**
+ * @implements {import('./db-persistence.js').DBPersistence}
+ */
 export class DDBPersistence {
   /**
    * @type DynamoDBClient
@@ -179,13 +182,12 @@ export class DDBPersistence {
   async appendItemValue(tableName, keyName, key, attrName, attr) {
     const ret = await this.#docClient.update({
       TableName: tableName,
-      UpdateExpression: `SET ${attrName} = list_append(${attrName}, :attrValue), prt = if_not_exists(prt, :now)`,
+      UpdateExpression: `SET ${attrName} = list_append(${attrName}, :attrValue)`,
       Key: {
         [keyName]: key,
       },
       ExpressionAttributeValues: {
         ':attrValue': [attr],
-        ':now': Date.now(),
       },
       ReturnValues: 'ALL_NEW',
     });
@@ -216,5 +218,83 @@ export class DDBPersistence {
       console.log('clearAttribute(%s, %s:%s, %s) -> %j', tableName, keyName, key, attrName, ret);
     }
     return ret.Attributes;
+  }
+
+  /**
+   * Touches the debounce entry, setting the expireAt to now + ttl seconds,
+   * and setting the requestTime to now if it does not exist yet.
+   * @param {string} tableName
+   * @param {string} keyName
+   * @param {string} key
+   * @param {number} ttl in seconds
+   * @returns {Promise<Record>} true if the expireAt was updated, null if it remained the same
+   */
+  async touchDebounce(tableName, keyName, key, ttl) {
+    const now = Math.floor(Date.now() / 1000);
+    const ttlValue = now + ttl;
+    const ret = await this.#docClient.update({
+      TableName: tableName,
+      UpdateExpression: 'SET expireAt = :ttlValue, requestTime = if_not_exists(requestTime, :now)',
+      Key: {
+        [keyName]: key,
+      },
+      ExpressionAttributeValues: {
+        ':now': now,
+        ':ttlValue': ttlValue,
+      },
+      ReturnValues: 'ALL_OLD',
+    });
+    console.log('[debounce] set %j', ret);
+    if (this.#debug) {
+      console.log('touchDebounce(%s, %s:%s, %d) -> %j', tableName, keyName, key, ttl, ret);
+    }
+    if (ret.Attributes?.expireAt !== ttlValue) {
+      console.log('[debounce] touched to %d', ttlValue);
+      return ret.Attributes;
+    } else {
+      console.log('[debounce] remained same %d', ttlValue);
+      return null;
+    }
+  }
+
+  /**
+   * Checks whether the debounce entry has expired, or if the request time exceeds the given maxAge.
+   * @param {string} tableName
+   * @param {string} keyName
+   * @param {string} key
+   * @param {number} maxAge in seconds
+   * @returns {Promise<Record>} the item if the debounce is still active, null otherwise
+   */
+  async checkDebounce(tableName, keyName, key, maxAge) {
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      const ret = await this.#docClient.delete({
+        TableName: tableName,
+        Key: {
+          [keyName]: key,
+        },
+        ExpressionAttributeValues: {
+          ':now': now,
+          ':expiration': now - maxAge,
+        },
+        ConditionExpression: ':now >= expireAt OR :expiration >= requestTime',
+        ReturnValues: 'NONE',
+        ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+      });
+      if (this.#debug) {
+        console.log('checkDebounce(%s, %s:%s, %d) -> %j', tableName, keyName, key, maxAge, ret);
+      }
+      console.log('[debounce] check now: %d -> %j', now, ret.Attributes);
+      return ret.Attributes;
+    } catch (e) {
+      if (e instanceof ConditionalCheckFailedException) {
+        if (this.#debug) {
+          console.log('checkDebounce(%s, %s:%s, %d) -> %j', tableName, keyName, key, maxAge, e.Item);
+        }
+        console.log('[debounce] check now: %d -> %j', now, e.Item);
+        return e.Item;
+      }
+      throw e;
+    }
   }
 }

@@ -11,20 +11,20 @@
  */
 import { WebSocketServer } from 'ws';
 import { Storage } from '../../src/storage.js';
-import { StorageS3 } from '../../src/storage-s3.js';
 import { YSockets } from '../../src/ysockets.js';
 import { LocalPersistence } from './local-db.js';
-import {DDBPersistence} from "../../src/ddb-persistence.js";
+import { DDBPersistence } from '../../src/ddb-persistence.js';
+import { DocPersistenceS3 } from '../../src/doc-persistence-s3.js';
 
 const wss = new WebSocketServer({ port: 8080 });
 console.log('Listening on ws://localhost:8080');
 
 let nextId = 0;
 const connectedClients = { };
-// const storage = new Storage(new LocalPersistence('./tmp'));
-const storage = new Storage(new DDBPersistence());
 
-// const storage = new StorageS3();
+// const storage = new Storage(new LocalPersistence('./tmp'));
+const storage = new Storage(new DDBPersistence(), new DocPersistenceS3());
+
 const send = async (id, b64Message) => {
   if (connectedClients[id]) {
     // console.log('[%d]< %s', id, b64Message);

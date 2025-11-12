@@ -17,7 +17,9 @@ import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lam
 import { trace, YSockets } from './ysockets.js';
 import { Storage } from './storage.js';
 import { DDBPersistence } from './ddb-persistence.js';
-import {StorageS3} from "./storage-s3.js";
+// import { StorageS3 } from './storage-s3.js';
+import { DocPersistenceS3 } from './doc-persistence-s3.js';
+import { DebounceQueue } from './debounce-queue.js';
 
 function getDocName(event) {
   const doc = event.queryStringParameters?.doc;
@@ -95,21 +97,38 @@ async function authorize(event) {
  */
 export async function run(event, context) {
   // console.log('EVENT', event, context);
+  let evt = event;
+  // handle sqs event
+  if (event.Records) {
+    if (event.Records.length) {
+      evt = JSON.parse(event.Records[0].body);
+      evt.body = '';
+      // console.log('SQS EVENT', evt);
+    } else {
+      console.warn('empty SQS event received');
+      return {
+        statusCode: 200,
+      };
+    }
+  }
+  const { body, requestContext: { connectionId, routeKey } = {} } = evt;
 
-  const { body, requestContext: { connectionId, routeKey } = {} } = event;
+  const storage = new Storage()
+    .withDebounceQueue(new DebounceQueue())
+    .withDocPersistence(new DocPersistenceS3())
+    .withPersistence(new DDBPersistence());
 
-  const storage = new Storage(new DDBPersistence());
   // const storage = new StorageS3();
   const callbackAPI = new ApiGatewayManagementApiClient({
     apiVersion: '2018-11-29',
-    endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,
+    endpoint: `https://${evt.requestContext.domainName}/${evt.requestContext.stage}`,
   });
 
   let ysockets;
   try {
     if (routeKey === '$connect') {
       // this uses a different send, so we keep it outside the switch block
-      if (!await authorize(event)) {
+      if (!await authorize(evt)) {
         console.log('unauthorized');
         return {
           statusCode: 401,
@@ -117,7 +136,7 @@ export async function run(event, context) {
         };
       }
       trace('$connect');
-      const docName = getDocName(event);
+      const docName = getDocName(evt);
       const ctx = {
         arn: context.invokedFunctionArn,
         domainName: event.requestContext.domainName,
@@ -132,6 +151,15 @@ export async function run(event, context) {
         headers: {
           'Sec-WebSocket-Protocol': 'yjs',
         },
+      };
+    } else if (routeKey === '$debounce-update') {
+      trace('$debounce-update');
+      const docName = getDocName(evt);
+      console.log('[debounce] update for doc %s', docName);
+      ysockets = new YSockets(storage, null);
+      await ysockets.onDebounceUpdate(docName);
+      return {
+        statusCode: 200,
       };
     }
 
@@ -155,7 +183,7 @@ export async function run(event, context) {
       default:
         // this is via the http api
         return {
-          status: 200,
+          statusCode: 200,
           body: 'ok',
         };
     }
@@ -163,7 +191,7 @@ export async function run(event, context) {
     trace(`error ${e}`);
     console.error('Internal Error:', e);
     return {
-      status: 500,
+      statusCode: 500,
       body: `Internal Error: ${e}`,
     };
   } finally {

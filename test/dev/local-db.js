@@ -74,6 +74,9 @@ function toBase64(attr) {
   return attr;
 }
 
+/**
+ * @implements {import('../../src/db-persistence.js').DBPersistence}
+ */
 export class LocalPersistence {
   #dir;
 

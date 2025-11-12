@@ -9,10 +9,11 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-import { INSTANCE_ID } from './ysockets.js';
+import { INSTANCE_ID, trace } from './ysockets.js';
 
 const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
 const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
+const DEBOUNCE_TABLE_NAME = 'helix-collab-debounce';
 
 export function logCache(cache, type) {
   console.info({
@@ -90,6 +91,16 @@ export class Storage {
   #ps;
 
   /**
+   * @type DocPersistence
+   */
+  #dps;
+
+  /**
+   * @type DebounceQueue
+   */
+  #dq;
+
+  /**
    * @type string
    */
   #docTableName;
@@ -100,16 +111,50 @@ export class Storage {
   #conTableName;
 
   /**
+   * @type string
+   */
+  #debounceTableName;
+
+  /**
+   * Delay in seconds before persisting document after last update
+   * @type {number}
+   */
+  #persistDelay = 5;
+
+  /**
+   * Timeout in seconds for persisting document changes
+   * @type {number}
+   */
+  #persistTimeout = 10;
+
+  /**
    * @param {DDBPersistence} persistence
    */
-  constructor(persistence) {
-    this.#ps = persistence;
+  constructor() {
     this.#docTableName = DOC_TABLE_NAME;
     this.#conTableName = CON_TABLE_NAME;
+    this.#debounceTableName = DEBOUNCE_TABLE_NAME;
+  }
+
+  withPersistence(persistence) {
+    this.#ps = persistence;
+    return this;
+  }
+
+  withDocPersistence(docPersistence) {
+    this.#dps = docPersistence;
+    return this;
+  }
+
+  withDebounceQueue(value) {
+    this.#dq = value;
+    return this;
   }
 
   destroy() {
-    this.#ps.destroy();
+    this.#ps?.destroy();
+    this.#dq?.destroy();
+    this.#dps?.destroy();
   }
 
   /**
@@ -239,13 +284,28 @@ export class Storage {
     return this.#ps.updateItem(this.#docTableName, 'docName', docName, attrName, attrValue);
   }
 
+  async debounceUpdate(docName) {
+    const attrs = await this.#ps.touchDebounce(this.#debounceTableName, 'docName', docName, this.#persistDelay);
+    if (attrs) {
+      await this.#dq.dispatch(docName, attrs.expireAt, attrs.requestTime);
+    }
+  }
+
+  async isUpdateDebounced(docName) {
+    const ret = await this.#ps.checkDebounce(this.#debounceTableName, 'docName', docName, this.#persistTimeout);
+    return !ret;
+  }
+
   /**
    * persists the document state to the persistence layer
-   * @param docName
+   * @param {SharedDocument} doc
    * @returns {Promise<void>}
    */
-  async persistDocumentDocument(docName) {
-    console.log('!!! persist !!!');
-    return this.#ps.removeAttribute(this.#docTableName, 'docName', docName, 'prt');
+  async persistDocument(doc) {
+    console.log('[debounce] converting document...', doc.name);
+    const content = doc.toAEM();
+    console.log('[debounce] persist', doc.name, content);
+    trace('persistDocument(%s) - %d bytes', doc.name, content.length);
+    await this.#dps.saveDoc(doc.name, content);
   }
 }

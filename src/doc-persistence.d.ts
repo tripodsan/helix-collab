@@ -9,28 +9,21 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-import * as Y from 'yjs';
-import { doc2aem } from './collab.js';
 
-export class SharedDocument extends Y.Doc {
-  name;
+/**
+ * Interface for DB persistence operations.
+ */
+export interface DocPersistence {
+    /**
+     * Cleans up resources used by the persistence layer.
+     */
+    destroy(): void;
 
-  connectionId;
-
-  withName(name) {
-    this.name = name;
-    return this;
-  }
-
-  withConnectionId(connectionId) {
-    this.connectionId = connectionId;
-    return this;
-  }
-
-  /**
-   * converts the Yjs document to AEM format
-   */
-  toAEM() {
-    return doc2aem(this);
-  }
+    /**
+     * stores the doc in the underlying s3 bucket
+     * @param {string} docName
+     * @param {string} content
+     * @returns {Promise<void>}
+     */
+    saveDoc(docName: string, content: string): Promise<void>;
 }

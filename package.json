@@ -29,7 +29,7 @@
     "__awsAttachAuthorizer": "helix-token-authorizer_v2",
     "adapterFile": "./src/adapter.js",
     "handler": "index.handler",
-    "timeout": 900000,
+    "timeout": 10000,
     "params-file": "secrets.json"
   },
   "mocha": {
@@ -54,6 +54,7 @@
     "@aws-sdk/client-dynamodb": "3.908.0",
     "@aws-sdk/client-lambda": "3.910.0",
     "@aws-sdk/client-s3": "3.922.0",
+    "@aws-sdk/client-sqs": "3.929.0",
     "@aws-sdk/lib-dynamodb": "3.908.0",
     "hast-util-from-html": "^2.0.3",
     "hast-util-select": "^6.0.4",

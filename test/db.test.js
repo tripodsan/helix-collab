@@ -21,8 +21,14 @@ describe('db test', () => {
    */
   let con;
 
+  /**
+   * @type DDBPersistence
+   */
+  let ps;
+
   beforeEach(() => {
-    con = new Storage(new DDBPersistence());
+    ps = new DDBPersistence();
+    con = new Storage(ps);
   });
 
   afterEach((() => {
@@ -118,5 +124,17 @@ describe('db test', () => {
       docName: 'test-doc',
       updates: ['1234', 'update-1'],
     });
+  });
+
+  it('test ttl', async () => {
+    const ret = await ps.touchDebounce('helix-collab-debounce', 'docName', 'test-doc', 10);
+    console.log(ret);
+    const ret1 = await ps.touchDebounce('helix-collab-debounce', 'docName', 'test-doc', 10);
+    console.log(ret1);
+  });
+
+  it('test max', async () => {
+    const ret = await ps.checkDebounce('helix-collab-debounce', 'docName', 'test-doc', 20);
+    console.log(ret);
   });
 });
