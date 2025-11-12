@@ -187,8 +187,8 @@ export class YSockets {
       console.log('Something went wrong with applying the update', e);
     }
 
-    sdoc.on('update', this.onUpdateBroadcast.bind(this));
-    sdoc.on('update', this.onUpdateStore.bind(this));
+    // sdoc.on('update', this.onUpdateBroadcast.bind(this));
+    // sdoc.on('update', this.onUpdateStore.bind(this));
 
     trace('getOrCreate() - done');
 
@@ -224,9 +224,10 @@ export class YSockets {
    * @param encoder
    * @param doc
    * @param transactionOrigin
+   * @return {number} messageType
    */
   // eslint-disable-next-line class-methods-use-this
-  onSyncMessage(decoder, encoder, doc, transactionOrigin) {
+  async onSyncMessage(decoder, encoder, doc, transactionOrigin) {
     trace('onSyncMessage() - init');
     const messageType = decoding.readVarUint(decoder);
     // console.log('onSyncMessage ', messageType);
@@ -240,13 +241,22 @@ export class YSockets {
         break;
       case syncProtocol.messageYjsUpdate: {
         // console.log(`applying update to doc ${doc.name}`);
-        syncProtocol.readUpdate(decoder, doc, transactionOrigin);
+        const update = decoding.readVarUint8Array(decoder);
+        try {
+          Y.applyUpdate(doc, update, transactionOrigin);
+        } catch (error) {
+          // This catches errors that are thrown by event handlers
+          console.error('Caught error while handling a Yjs update', error)
+        }
+        // await this.onUpdateBroadcast(update, null, doc);
+        await this.onUpdateStore(update, null, doc);
         break;
       }
       default:
         throw new Error('Unknown message type');
     }
     trace('onSyncMessage() - done');
+    return messageType;
   }
 
   /**
@@ -305,7 +315,8 @@ export class YSockets {
       case messageSync: {
         const doc = await this.getOrCreateDoc(connectionId, docName);
         encoding.writeVarUint(encoder, messageSync);
-        this.onSyncMessage(decoder, encoder, doc);
+        // await this.broadcast(docName, connectionId, message);
+        await this.onSyncMessage(decoder, encoder, doc);
         if (encoding.length(encoder) > 1) {
           trace('onMessage() - reply sync message');
           await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));

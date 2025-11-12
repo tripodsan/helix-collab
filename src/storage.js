@@ -292,8 +292,7 @@ export class Storage {
   }
 
   async isUpdateDebounced(docName) {
-    const ret = await this.#ps.checkDebounce(this.#debounceTableName, 'docName', docName, this.#persistTimeout);
-    return !ret;
+    return this.#ps.checkDebounce(this.#debounceTableName, 'docName', docName, this.#persistTimeout);
   }
 
   /**

@@ -250,7 +250,7 @@ export class DDBPersistence {
     }
     if (ret.Attributes?.expireAt !== ttlValue) {
       console.log('[debounce] touched to %d', ttlValue);
-      return ret.Attributes;
+      return ret.Attributes ?? { expireAt: ttlValue, requestTime: now };
     } else {
       console.log('[debounce] remained same %d', ttlValue);
       return null;
@@ -263,7 +263,7 @@ export class DDBPersistence {
    * @param {string} keyName
    * @param {string} key
    * @param {number} maxAge in seconds
-   * @returns {Promise<Record>} the item if the debounce is still active, null otherwise
+   * @returns {Promise<boolean>} {@code true} if the debounce has expired, {@code false} otherwise
    */
   async checkDebounce(tableName, keyName, key, maxAge) {
     const now = Math.floor(Date.now() / 1000);
@@ -278,21 +278,21 @@ export class DDBPersistence {
           ':expiration': now - maxAge,
         },
         ConditionExpression: ':now >= expireAt OR :expiration >= requestTime',
-        ReturnValues: 'NONE',
-        ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+        ReturnValues: 'ALL_OLD',
+        ReturnValuesOnConditionCheckFailure: 'NONE',
       });
       if (this.#debug) {
         console.log('checkDebounce(%s, %s:%s, %d) -> %j', tableName, keyName, key, maxAge, ret);
       }
       console.log('[debounce] check now: %d -> %j', now, ret.Attributes);
-      return ret.Attributes;
+      return true;
     } catch (e) {
       if (e instanceof ConditionalCheckFailedException) {
         if (this.#debug) {
           console.log('checkDebounce(%s, %s:%s, %d) -> %j', tableName, keyName, key, maxAge, e.Item);
         }
         console.log('[debounce] check now: %d -> %j', now, e.Item);
-        return e.Item;
+        return false;
       }
       throw e;
     }
