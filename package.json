@@ -73,7 +73,7 @@
     "@adobe/helix-universal": "5.2.3",
     "@adobe/helix-universal-devserver": "1.1.140",
     "@adobe/semantic-release-coralogix": "1.1.39",
-    "@adobe/y-websocket": "git://github.com/adobe-rnd/y-websocket.git#3.0.0-base64",
+    "@adobe/y-websocket": "git://github.com/adobe-rnd/y-websocket.git#1768e91",
     "@eslint/config-helpers": "0.3.1",
     "@semantic-release/changelog": "6.0.3",
     "@semantic-release/exec": "7.1.0",

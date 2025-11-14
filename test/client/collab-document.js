@@ -61,6 +61,7 @@ export class CollabDocument extends EventEmitter {
       protocols: ['yjs', this.token],
       useBase64: true,
       connect: false,
+      throttle: 500,
     });
     this.provider.awareness.setLocalStateField('user', {
       name: this.userName,

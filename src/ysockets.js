@@ -24,7 +24,7 @@ const messageSync = 0;
 const messageAwareness = 1;
 
 export const INSTANCE_ID = randomUUID();
-function logUsage(connectionId, docName, action) {
+export function logUsage(connectionId, docName, action) {
   console.info({
     message: 'LOG_USAGE',
     id: INSTANCE_ID,
@@ -55,18 +55,6 @@ export class YSockets {
   #sendCB;
 
   /**
-   * Store incremental updates
-   * @type {boolean}
-   */
-  #incremental = true;
-
-  /**
-   * internal promise that is resolved when the doc is updated
-   * @type {null}
-   */
-  #updatePromise = null;
-
-  /**
    * @param {Storage} storage
    * @returns {YSockets}
    */
@@ -80,62 +68,29 @@ export class YSockets {
   }
 
   /**
-   * waits until the document is updated.
-   * @returns {Promise<null>}
-   */
-  async updated() {
-    return this.#updatePromise;
-  }
-
-  /**
-   * stores the updated doc in storage and broadcasts the update/
+   * stores the updated doc in storage
+   * @param {SharedDocument} doc
    * @param {Uint8Array} update
-   * @param {?} origin
-   * @param {Y.doc} doc
    * @returns {Promise<void>}
    */
-  async onUpdateBroadcast(update, origin, doc) {
-    trace('onUpdateBroadcast() - init');
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, messageSync);
-    syncProtocol.writeUpdate(encoder, update);
-    const message = encoding.toUint8Array(encoder);
-    await this.broadcast(doc.name, doc.connectionId, message);
-    trace('onUpdateBroadcast() - done');
-  }
-
-  /**
-   * stores the updated doc in storage and broadcasts the update/
-   * @param {Uint8Array} update
-   * @param {?} origin
-   * @param {Y.doc} doc
-   * @returns {Promise<void>}
-   */
-  async onUpdateStore(update, origin, doc) {
+  async onUpdateStore(doc, update) {
     trace('onUpdateStore() - init');
-    // this is a bit awkward. but if the ydoc triggers the update, we want to wait until
-    // the storage is updated before the lambda ends
-    let done = null;
-    this.#updatePromise = new Promise((resolve) => {
-      done = resolve;
-    });
     try {
-      if (origin === this) {
-        console.log('update self');
-      }
-      if (this.#incremental) {
-        await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
-        // we can't really debounce in AWS lambda, as the function might end right away.
-        // so we track the debounce time in the debounce table and send an SQS to persist later.
-        await this.#storage.debounceUpdate(doc.name);
-      } else {
+      const buf = Buffer.from(update);
+      if (doc.diskSize + buf.length > 10_000) {
+        console.log('doc %s exceeded size limit with %d bytes, switching to full state saves', doc.name, doc.diskSize + buf.length);
+        await this.#storage.removeDoc(doc.name);
         const state = Y.encodeStateAsUpdate(doc);
-        await this.#storage.storeDoc(doc.name, 'state', Buffer.from(state));
+        await this.#storage.storeDocState(doc.name, Buffer.from(state));
+      } else {
+        await this.#storage.updateDoc(doc.name, 'updates', Buffer.from(update));
       }
+
+      // we can't really debounce in AWS lambda, as the function might end right away.
+      // so we track the debounce time in the debounce table and send an SQS to persist later.
+      await this.#storage.debounceUpdate(doc.name);
     } finally {
       trace('onUpdateStore() - done');
-      done();
-      this.updatePromise = null;
     }
   }
 
@@ -164,9 +119,11 @@ export class YSockets {
    */
   async getOrCreateDoc(connectionId, docName) {
     trace('getOrCreate() - init');
-    const doc = this.#incremental
-      ? await this.#storage.getOrCreateDoc(docName, 'updates', [])
-      : await this.#storage.getOrCreateDoc(docName, 'state', Buffer.alloc(0));
+    const doc = await this.#storage.getOrCreateDoc(docName, 'updates', []);
+    const state = await this.#storage.loadDocState(docName);
+    if (state) {
+      doc.updates.unshift(state);
+    }
 
     const sdoc = new SharedDocument()
       .withName(docName)
@@ -174,24 +131,19 @@ export class YSockets {
 
     trace('getOrCreate() - apply doc updates');
 
-    // apply update before init listeners
     try {
-      if (this.#incremental) {
-        for (const update of doc.updates) {
-          Y.applyUpdate(sdoc, update);
-        }
-      } else if (doc.state.length > 0) {
-        Y.applyUpdate(sdoc, doc.state);
+      let size = state ? -state.length : 0;
+      for (const update of doc.updates) {
+        size += update.length;
+        Y.applyUpdate(sdoc, update);
       }
+      sdoc.diskSize = size;
+      console.log('applied %d updates (%d bytes) to doc %s', doc.updates.length, size, docName);
     } catch (e) {
       console.log('Something went wrong with applying the update', e);
     }
 
-    // sdoc.on('update', this.onUpdateBroadcast.bind(this));
-    // sdoc.on('update', this.onUpdateStore.bind(this));
-
     trace('getOrCreate() - done');
-
     return sdoc;
   }
 
@@ -210,7 +162,7 @@ export class YSockets {
           await this.#sendCB(id, msg);
         } catch (e) {
           // remove connections that no longer exist
-          if (e instanceof GoneException) {
+          if (e instanceof GoneException || e.message.startsWith('no connection for %s', id)) {
             await this.#storage.removeConnection(id);
           }
         }
@@ -224,9 +176,8 @@ export class YSockets {
    * @param encoder
    * @param doc
    * @param transactionOrigin
-   * @return {number} messageType
+   * @return {Promise<number>}
    */
-  // eslint-disable-next-line class-methods-use-this
   async onSyncMessage(decoder, encoder, doc, transactionOrigin) {
     trace('onSyncMessage() - init');
     const messageType = decoding.readVarUint(decoder);
@@ -245,11 +196,9 @@ export class YSockets {
         try {
           Y.applyUpdate(doc, update, transactionOrigin);
         } catch (error) {
-          // This catches errors that are thrown by event handlers
-          console.error('Caught error while handling a Yjs update', error)
+          console.error('Caught error while handling a Yjs update', error);
         }
-        // await this.onUpdateBroadcast(update, null, doc);
-        await this.onUpdateStore(update, null, doc);
+        await this.onUpdateStore(doc, update);
         break;
       }
       default:
@@ -307,7 +256,6 @@ export class YSockets {
     const messageCat = decoding.readVarUint(decoder);
 
     const docName = (await this.#storage.getConnection(connectionId))?.docName;
-    logUsage(connectionId, docName, `message-${messageCat}`);
     if (!docName) {
       throw Error(`no connection for ${connectionId}`);
     }
@@ -315,17 +263,18 @@ export class YSockets {
       case messageSync: {
         const doc = await this.getOrCreateDoc(connectionId, docName);
         encoding.writeVarUint(encoder, messageSync);
-        // await this.broadcast(docName, connectionId, message);
-        await this.onSyncMessage(decoder, encoder, doc);
+        const type = await this.onSyncMessage(decoder, encoder, doc, null);
+        await this.broadcast(docName, connectionId, message);
+        logUsage(connectionId, docName, `message-0-${type}`);
         if (encoding.length(encoder) > 1) {
           trace('onMessage() - reply sync message');
           await this.#sendCB(connectionId, toBase64(encoding.toUint8Array(encoder)));
         }
-        await this.updated();
         trace('onMessage() - done sync message');
         break;
       }
       case messageAwareness: {
+        logUsage(connectionId, docName, 'message-1');
         await this.broadcast(docName, connectionId, message);
         break;
       }

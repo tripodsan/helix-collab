@@ -9,6 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
+import { HelixStorage } from '@adobe/helix-shared-storage';
 import { INSTANCE_ID, trace } from './ysockets.js';
 
 const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
@@ -70,6 +71,10 @@ function removeConnectionCache(id) {
   }
 }
 
+function getDocKey(docName) {
+  return `/helix-collab/docs/${docName}.bin`.replaceAll(/\/+/g, '/');
+}
+
 /**
  * @typedef ConnectionItem
  * @property {string} id
@@ -85,6 +90,21 @@ function removeConnectionCache(id) {
  */
 
 export class Storage {
+  /**
+   * @type {HelixStorage}
+   */
+  #sharedStorage;
+
+  /**
+   * @type {Bucket}
+   */
+  #bucket;
+
+  /**
+   * @type {string}
+   */
+  #bucketId = 'helix-tier3-test-bucket';
+
   /**
    * @type DDBPersistence
    */
@@ -134,6 +154,10 @@ export class Storage {
     this.#docTableName = DOC_TABLE_NAME;
     this.#conTableName = CON_TABLE_NAME;
     this.#debounceTableName = DEBOUNCE_TABLE_NAME;
+    this.#sharedStorage = new HelixStorage({
+      disableR2: true,
+    });
+    this.#bucket = this.#sharedStorage.bucket(this.#bucketId, true);
   }
 
   withPersistence(persistence) {
@@ -155,6 +179,7 @@ export class Storage {
     this.#ps?.destroy();
     this.#dq?.destroy();
     this.#dps?.destroy();
+    this.#sharedStorage.close();
   }
 
   /**
@@ -237,14 +262,6 @@ export class Storage {
   }
 
   /**
-   * @param {string} docName
-   * @returns {Promise<DocumentItem>}
-   */
-  async getDoc(docName) {
-    return this.#ps.getItem(this.#docTableName, 'docName', docName);
-  }
-
-  /**
    * @param docName
    * @returns {Promise<boolean>}
    */
@@ -275,13 +292,22 @@ export class Storage {
   }
 
   /**
+   * Loads the document state from s3
    * @param {string} docName
-   * @param attrName
-   * @param attrValue
-   * @returns {Promise<DocumentItem>}
+   * @returns {Promise<Buffer>}
    */
-  async storeDoc(docName, attrName, attrValue) {
-    return this.#ps.updateItem(this.#docTableName, 'docName', docName, attrName, attrValue);
+  async loadDocState(docName) {
+    return this.#bucket.get(getDocKey(docName));
+  }
+
+  /**
+   * Stores the document state to s3
+   * @param {string} docName
+   * @param {Buffer} data
+   * @returns {Promise<void>}
+   */
+  async storeDocState(docName, data) {
+    await this.#bucket.put(getDocKey(docName), data, 'application/octet-stream');
   }
 
   async debounceUpdate(docName) {

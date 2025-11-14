@@ -11,6 +11,7 @@
  */
 import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
+import {logUsage} from "./ysockets.js";
 
 /**
  * @implements {import('./db-persistence.js').DBPersistence}
@@ -194,6 +195,7 @@ export class DDBPersistence {
     if (this.#debug) {
       console.log('updateItemValue(%s, %s:%s, %s:%s) -> %j', tableName, keyName, key, attrName, attr, ret);
     }
+    logUsage('', key, 'appendItem');
     return ret.Attributes;
   }
 

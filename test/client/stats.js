@@ -78,9 +78,10 @@ async function run() {
   const actions = {
     count: 0,
     num_connect: 0,
-    'num_message-0': 0,
+    'num_message-0-2': 0,
     'num_message-1': 0,
     num_disconnect: 0,
+    num_appendItem: 0,
   };
   for (const f of Object.values(funcs)) {
     for (const k of Object.keys(actions)) {

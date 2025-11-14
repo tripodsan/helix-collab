@@ -17,6 +17,8 @@ export class SharedDocument extends Y.Doc {
 
   connectionId;
 
+  diskSize = 0;
+
   withName(name) {
     this.name = name;
     return this;

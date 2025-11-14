@@ -25,7 +25,7 @@ const sleep = (ms) => new Promise((resolve) => {
 const TEXT = 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.';
 // const TEXT = 'Lorem ipsum.';
 
-async function testClient(docName, userName) {
+async function testClient(docName, userName, typing) {
   console.log(`--> starting ${docName} / ${userName}`);
   const secrets = JSON.parse(await readFile('secrets.json', 'utf-8'));
   const doc = new CollabDocument(
@@ -44,9 +44,20 @@ async function testClient(docName, userName) {
     console.log(`--> sending ${words.length} words to ${docName} / ${userName}`);
     words.unshift(`Hello from ${userName}: `);
     for (const word of words) {
-      doc.pasteText(` ${word}`);
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(word.length * 10 + Math.random() * 100 + 200);
+      if (typing) {
+        doc.pasteText(' ');
+        for (let i = 0; i < word.length; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await sleep(15);
+          doc.pasteText(word.charAt(i));
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(Math.random() * 70 + 200);
+      } else {
+        doc.pasteText(` ${word}`);
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(word.length * 10 + Math.random() * 100 + 200);
+      }
     }
     doc.pasteText('\n');
 
@@ -82,6 +93,11 @@ async function run() {
       short: 'c',
       default: '1',
     },
+    typing: {
+      type: 'boolean',
+      short: 't',
+      default: false,
+    },
     docPattern: {
       type: 'string',
       short: 'd',
@@ -105,7 +121,7 @@ async function run() {
     process.exit(0);
   }
   if (values.user && values.doc) {
-    await testClient(values.doc, values.user);
+    await testClient(values.doc, values.user, values.typing);
     return;
   }
 
@@ -117,7 +133,11 @@ async function run() {
     const docName = format(values.docPattern, n);
     for (let i = 0; i < numUsers; i += 1) {
       const userName = `test-user-${i}`;
-      tests.push(fork(process.argv[1], ['--user', userName, '--doc', docName]));
+      const args = ['--user', userName, '--doc', docName];
+      if (values.typing) {
+        args.push('--typing');
+      }
+      tests.push(fork(process.argv[1], args));
       // eslint-disable-next-line no-await-in-loop
       await sleep(1000);
     }
