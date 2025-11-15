@@ -26,4 +26,12 @@ export interface DocPersistence {
      * @returns {Promise<void>}
      */
     saveDoc(docName: string, content: string): Promise<void>;
+
+    /**
+     * loads the doc from the underlying s3 bucket
+     * @param {string} docName
+     * @returns {Promise<string>}
+     */
+    loadDoc(docName: string): Promise<string>;
 }
+

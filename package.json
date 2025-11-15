@@ -46,7 +46,6 @@
   "author": "",
   "license": "Apache-2.0",
   "dependencies": {
-    "@adobe/fetch": "4.2.3",
     "@adobe/helix-shared-storage": "1.8.0",
     "@adobe/helix-shared-wrap": "2.0.2",
     "@adobe/helix-status": "10.1.5",
@@ -58,6 +57,7 @@
     "@aws-sdk/lib-dynamodb": "3.908.0",
     "hast-util-from-html": "^2.0.3",
     "hast-util-select": "^6.0.4",
+    "ioredis": "^5.8.2",
     "lib0": "0.2.114",
     "prosemirror-model": "^1.25.4",
     "prosemirror-schema-list": "^1.5.1",
@@ -68,6 +68,7 @@
   },
   "devDependencies": {
     "@adobe/eslint-config-helix": "3.0.10",
+    "@adobe/fetch": "4.2.3",
     "@adobe/helix-admin-support": "3.3.21",
     "@adobe/helix-deploy": "13.1.14",
     "@adobe/helix-universal": "5.2.3",

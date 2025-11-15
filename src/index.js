@@ -17,9 +17,9 @@ import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lam
 import { trace, YSockets } from './ysockets.js';
 import { Storage } from './storage.js';
 import { DDBPersistence } from './ddb-persistence.js';
-// import { StorageS3 } from './storage-s3.js';
-import { DocPersistenceS3 } from './doc-persistence-s3.js';
 import { DebounceQueue } from './debounce-queue.js';
+import { DocPersistenceDA } from './doc-persistence-da.js';
+import { testMemoryDB } from './memory-db.js';
 
 function getDocName(event) {
   const doc = event.queryStringParameters?.doc;
@@ -115,7 +115,8 @@ export async function run(event, context) {
 
   const storage = new Storage()
     .withDebounceQueue(new DebounceQueue())
-    .withDocPersistence(new DocPersistenceS3())
+    // .withDocPersistence(new DocPersistenceS3())
+    .withDocPersistence(new DocPersistenceDA())
     .withPersistence(new DDBPersistence());
 
   // const storage = new StorageS3();
@@ -182,6 +183,10 @@ export async function run(event, context) {
         return { statusCode: 200 };
       default:
         // this is via the http api
+        console.log('EVENT', event, context);
+        if (event.requestContext?.http?.path.endsWith('/test')) {
+          return testMemoryDB();
+        }
         return {
           statusCode: 200,
           body: 'ok',

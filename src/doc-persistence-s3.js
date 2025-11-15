@@ -57,4 +57,14 @@ export class DocPersistenceS3 {
   async saveDoc(docName, content) {
     await this.#bucket.put(getDocKey(docName), content, 'text/html');
   }
+
+  /**
+   * loads the doc from the underlying s3 bucket
+   * @param {string} docName
+   * @param {string} content
+   * @returns {Promise<Buffer>}
+   */
+  async loadDoc(docName) {
+    await this.#bucket.get(getDocKey(docName));
+  }
 }

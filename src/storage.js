@@ -11,6 +11,7 @@
  */
 import { HelixStorage } from '@adobe/helix-shared-storage';
 import { INSTANCE_ID, trace } from './ysockets.js';
+import {SharedDocument} from "./doc/shared-document.js";
 
 const CON_TABLE_NAME = 'helix-test-collab-v0-connections';
 const DOC_TABLE_NAME = 'helix-test-collab-v0-docs';
@@ -310,9 +311,19 @@ export class Storage {
     await this.#bucket.put(getDocKey(docName), data, 'application/octet-stream');
   }
 
-  async debounceUpdate(docName) {
+  /**
+   * removes the document state from s3
+   * @param {string} docName
+   * @param {Buffer} data
+   * @returns {Promise<void>}
+   */
+  async removeDocState(docName) {
+    await this.#bucket.remove(getDocKey(docName));
+  }
+
+  async debounceUpdate(docName, force = false) {
     const attrs = await this.#ps.touchDebounce(this.#debounceTableName, 'docName', docName, this.#persistDelay);
-    if (attrs) {
+    if (attrs || force) {
       await this.#dq.dispatch(docName, attrs.expireAt, attrs.requestTime);
     }
   }
@@ -332,5 +343,13 @@ export class Storage {
     console.log('[debounce] persist', doc.name, content);
     trace('persistDocument(%s) - %d bytes', doc.name, content.length);
     await this.#dps.saveDoc(doc.name, content);
+  }
+
+  async loadDocument(docName) {
+    const html = await this.#dps.loadDoc(docName);
+    if (!html) {
+      return null;
+    }
+    return SharedDocument.fromAEM(docName, html.toString());
   }
 }

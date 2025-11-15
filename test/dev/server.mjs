@@ -11,10 +11,10 @@
  */
 import { WebSocketServer } from 'ws';
 import { Storage } from '../../src/storage.js';
-import { YSockets } from '../../src/ysockets.js';
+import { trace, YSockets } from '../../src/ysockets.js';
 import { LocalPersistence } from './local-db.js';
-import { DDBPersistence } from '../../src/ddb-persistence.js';
-import { DocPersistenceS3 } from '../../src/doc-persistence-s3.js';
+import { DocPersistenceDA } from '../../src/doc-persistence-da.js';
+import { LocalDebounceQueue } from './local-queue.js';
 
 const wss = new WebSocketServer({ port: 8080 });
 console.log('Listening on ws://localhost:8080');
@@ -22,8 +22,11 @@ console.log('Listening on ws://localhost:8080');
 let nextId = 0;
 const connectedClients = { };
 
-// const storage = new Storage(new LocalPersistence('./tmp'));
-const storage = new Storage(new DDBPersistence(), new DocPersistenceS3());
+const queue = new LocalDebounceQueue();
+const storage = new Storage()
+  .withDebounceQueue(queue)
+  .withDocPersistence(new DocPersistenceDA())
+  .withPersistence(new LocalPersistence('./tmp'));
 
 const send = async (id, b64Message) => {
   if (connectedClients[id]) {
@@ -41,6 +44,12 @@ function getDocName(params) {
   }
   return doc;
 }
+
+queue.withCallback(async (docName) => {
+  trace('$debounce-update');
+  console.log('[debounce] update for doc %s', docName);
+  await ysockets.onDebounceUpdate(docName);
+});
 
 wss.on('connection', async (ws, req) => {
   const url = new URL(`wss://localhost:8080${req.url}`);

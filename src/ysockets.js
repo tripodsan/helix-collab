@@ -97,6 +97,7 @@ export class YSockets {
   /**
    * handles the debounce update
    * @param {string} docName
+   * @param {boolean} force
    * @returns {Promise<void>}
    */
   async onDebounceUpdate(docName) {
@@ -109,6 +110,12 @@ export class YSockets {
     console.log('[debounce] doc debounced %s', docName);
     const doc = await this.getOrCreateDoc('', docName);
     await this.#storage.persistDocument(doc);
+    const ids = await this.#storage.getConnectionIds(docName);
+    if (ids.length === 0) {
+      console.log('[debounce] no active connections, removing doc %s', docName);
+      await this.#storage.removeDoc(docName);
+      await this.#storage.removeDocState(docName);
+    }
   }
 
   /**
@@ -123,6 +130,16 @@ export class YSockets {
     const state = await this.#storage.loadDocState(docName);
     if (state) {
       doc.updates.unshift(state);
+    }
+
+    if (doc.updates.length === 0) {
+      // try to load from persistence
+      const sdoc = await this.#storage.loadDocument(docName);
+      if (sdoc) {
+        console.log('loaded document %s from persistence', docName);
+        await this.#storage.storeDocState(docName, Buffer.from(Y.encodeStateAsUpdate(sdoc)));
+        return sdoc.withConnectionId(connectionId);
+      }
     }
 
     const sdoc = new SharedDocument()
@@ -237,7 +254,15 @@ export class YSockets {
    */
   async onDisconnect(connectionId) {
     const item = await this.#storage.removeConnection(connectionId);
-    logUsage(connectionId, item?.docName, 'disconnect');
+    const docName = item?.docName;
+    if (docName) {
+      // trigger update in order to re-check for pending connections and then
+      // clear the document records
+      await this.#storage.debounceUpdate(docName, true);
+    } else {
+      console.log('disconnected connection %s had no associated doc', connectionId);
+    }
+    logUsage(connectionId, docName, 'disconnect');
     console.log(`[${connectionId}] disconnected`);
   }
 

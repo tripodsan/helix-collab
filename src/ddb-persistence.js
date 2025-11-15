@@ -135,7 +135,7 @@ export class DDBPersistence {
    * @param tableName
    * @param keyName
    * @param key
-   * @returns {Promise<boolean>}
+   * @returns {Promise<ConnectionItem>}
    */
   async removeItem(tableName, keyName, key) {
     const ret = await this.#docClient.delete({
@@ -143,11 +143,12 @@ export class DDBPersistence {
       Key: {
         [keyName]: key,
       },
+      ReturnValues: 'ALL_OLD',
     });
     if (this.#debug) {
       console.log('removeItem(%s, %s:%s) -> %j', tableName, keyName, key, ret);
     }
-    return ret.$metadata.httpStatusCode === 200;
+    return ret.Attributes;
   }
 
   /**
