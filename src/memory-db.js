@@ -3,7 +3,7 @@
 import Redis from "ioredis";
 
 // IMPORTANT: Replace these with your actual MemoryDB details
-const MEMORYDB_HOST = 'clustercfg.helix-collab-cluster.0s8vxt.memorydb.us-east-1.amazonaws.com';
+const MEMORYDB_HOST = 'clustercfg.helix-collab-cluster-2.0s8vxt.memorydb.us-east-1.amazonaws.com';
 const MEMORYDB_PORT = 6379;
 
 // Use a global client to allow Lambda to reuse the connection across invocations.

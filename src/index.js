@@ -184,7 +184,7 @@ export async function run(event, context) {
       default:
         // this is via the http api
         console.log('EVENT', event, context);
-        if (event.requestContext?.http?.path.endsWith('/test')) {
+        if (event.requestContext?.http?.path?.endsWith('/test')) {
           return testMemoryDB();
         }
         return {
